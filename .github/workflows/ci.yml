@@ -1,0 +1,50 @@
+name: ci
+on: [push, pull_request]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  format:
+    runs-on: ubuntu-latest
+    container: rust:latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: rustup component add rustfmt
+      - run: cargo fmt --check --all
+
+  check:
+    runs-on: ubuntu-latest
+    container: rust:latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: cargo check --workspace --bins --examples --tests --benches --all-targets --all-features
+
+  clippy:
+    runs-on: ubuntu-latest
+    container: rust:latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: rustup component add clippy
+      - run: cargo clippy --workspace --bins --examples --tests --benches --all-targets --all-features
+
+  doc:
+    runs-on: ubuntu-latest
+    env:
+      RUSTDOCFLAGS: -D warnings
+    steps:
+      - uses: actions/checkout@v3
+      - run: cargo doc --workspace --bins --examples --all-features --no-deps
+
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        rust: [stable]
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v3
+      - run: rustup toolchain install stable --profile minimal
+      - run: cargo test --workspace --bins --examples --tests --benches --all-targets --all-features --no-fail-fast
