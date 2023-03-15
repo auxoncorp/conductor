@@ -1,0 +1,12 @@
+[package]
+name = "conductor-cli"
+version = "0.1.0-dev"
+authors = ["Patrick Barrett <patrick@auxon.com>"]
+edition = "2021"
+description = "CLI definition for the `conductor` crate."
+homepage = "https://auxon.com"
+repository = "https://github.com/auxoncorp/conductor"
+license = "Apache-2.0"
+
+[dependencies]
+clap = { version = "4", features = ["derive", "cargo", "wrap_help"] }

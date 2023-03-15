@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "conductor",
+    "conductor-cli",
+    "conductor-config",
+]
