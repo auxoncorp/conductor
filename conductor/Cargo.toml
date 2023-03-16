@@ -17,12 +17,14 @@ conductor-cli = { version = "0.1.0-dev", path = "../conductor-cli"}
 conductor-config = { version = "0.1.0-dev", path = "../conductor-config"}
 
 anyhow = "1.0"
+bollard = "0.14"
+futures-util = "*"
 thiserror = "1.0"
 derive_more = "0.99"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.16", features = ["fmt"] }
 
-
 [dev-dependencies]
 assert_cmd = "2.0.10"
+tracing-test = "0.2"
