@@ -1,0 +1,129 @@
+name = 'my system'
+
+[environment-variables]
+SOME_VAR = 'SOME_VAL'
+SOME_VAR2 = 'SOME_VAL2'
+
+[[simulator]]
+name = 'a world'
+    [simulator.backend.gazebo]
+    world-path = 'path/to/my.sdf'
+    config-path = 'path/to/gz.conf'
+    plugins-path = 'path/to/plugins'
+    headless = false
+    partition = 'my-sim-partition'
+
+[[machine]]
+name = "foo"
+bin = 'path/to/foo-firmware'
+    [machine.assets]
+    'path/to/some/host/dir' = 'path/on/guest'
+
+    [machine.environment-variables]
+    M0_VAR = 'M0_VAL'
+    M1_VAR = 'M1_VAL'
+
+    [machine.backend.docker]
+    foo = "bar"
+
+    [[machine.connector]]
+    name = "foobar"
+    interface = "sysbus.uart1"
+    special-thing = 'foo'
+
+    [[machine.connector]]
+    name = "foobiz"
+    interface = "sysbus.ethernet"
+    this-one = 1
+
+[[machine]]
+name = "bar"
+bin = 'path/to/bar-firmware.bin'
+    [machine.environment-variables]
+    M0_VAR = 'M0_VAL_BAR'
+
+    [machine.backend.qemu]
+    machine = 'mps2-an385'
+    cpu = 'cortex-m3'
+    memory = '16M'
+    no-graphic = true
+        [machine.backend.qemu.qmp]
+        port = 4444
+        wait = false
+        server = true
+
+    [[machine.connector]]
+    name = "foobar"
+    interface = "serial4"
+    more-special-thing = 'bar'
+
+    [[machine.connector]]
+    name = "barbiz-bt"
+    interface = "net4"
+    macaddr = '52:54:00:12:34:AD'
+    model = 'lan9118'
+
+[[machine]]
+name = "biz"
+bin = 'path/to/biz-firmware.elf'
+    [machine.backend.renode]
+    disable-xwt = true
+    console = true
+    platform-descriptions = [
+        '@platforms/boards/stm32f4_discovery-kit.repl',
+        'my/local/dev_board.repl',
+        '''
+        phy3: Network.EthernetPhysicalLayer @ ethernet 3
+            Id1: 0x0000
+            Id2: 0x0000
+        ''',
+    ]
+    commands = [
+        'logLevel -1 i2c2',
+        'ethernet.phy1 Id1 0',
+        '''
+        python "import _random"
+        python "rand = _random.Random()"
+
+        $id1 = `python "print rand.getrandbits(32)"`
+        $id2 = `python "print rand.getrandbits(32)"`
+        $id3 = `python "print rand.getrandbits(32)"`
+        ''',
+    ]
+    reset-macro = '''
+    sysbus LoadELF $bin
+    sysbus WriteDoubleWord 0x1FFF7A10 $id1
+    sysbus WriteDoubleWord 0x1FFF7A14 $id2
+    sysbus WriteDoubleWord 0x1FFF7A18 $id3
+    '''
+
+    [[machine.connector]]
+    name = "barbiz-bt"
+    interface = "net0"
+
+    [[machine.connector]]
+    name = "foobiz"
+    interface = "net2"
+
+[[connection]]
+name = "foobar"
+type = "uart"
+
+[[connection]]
+name = "barbiz"
+type = "gpio"
+
+[[connection]]
+name = "barbiz-bt"
+type = "wireless-network"
+medium = "ble"
+
+[[connection]]
+name = "foobiz"
+type = "network"
+host-tap = "tap0"
+
+[[storage]]
+name = "my-img"
+type = "virtio"
+image = 'path/to/my.img'

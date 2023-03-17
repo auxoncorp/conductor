@@ -6,7 +6,23 @@ use std::{
     str::FromStr,
 };
 
+pub use connector_properties::{
+    ConnectorPropertiesError, GpioConnectorProperties, NetworkConnectorProperties,
+    UartConnectorProperties,
+};
+pub use docker::DockerMachineBackend;
+pub use gazebo::GazeboSimulatorBackend;
+pub use qemu::{QemuMachineBackend, QemuMachineProtocolConfig};
+pub use renode::{RenodeCliConfig, RenodeMachineBackend, RenodeScriptConfig};
+
+mod connector_properties;
+mod docker;
+mod gazebo;
+mod qemu;
+mod renode;
+
 pub const DEFAULT_CONFIG_FILE_NAME: &str = "conductor.toml";
+pub const DEFAULT_SYSTEM_NAME: &str = "default-system";
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigReadError {
@@ -40,44 +56,32 @@ pub struct Config {
     pub storages: Vec<Storage>,
 }
 
-#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct Global {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub environment_variables: BTreeMap<String, String>,
 }
 
-#[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct Simulator {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub environment_variables: BTreeMap<String, String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub assets: Vec<PathBuf>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub assets: BTreeMap<PathBuf, PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backend: Option<SimulatorBackend>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SimulatorBackend {
     Gazebo(GazeboSimulatorBackend),
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub struct GazeboSimulatorBackend {
-    pub world_path: PathBuf,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub plugin_path: Option<PathBuf>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub resource_path: Option<PathBuf>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub partition: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub headless: Option<bool>,
 }
 
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
@@ -87,15 +91,15 @@ pub struct Machine {
     pub name: Option<String>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub environment_variables: BTreeMap<String, String>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub assets: Vec<PathBuf>,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub assets: BTreeMap<PathBuf, PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub backend: Option<MachineBackend>,
     #[serde(alias = "connector", skip_serializing_if = "Vec::is_empty")]
     pub connectors: Vec<MachineConnector>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum MachineBackend {
     Renode(RenodeMachineBackend),
@@ -105,75 +109,46 @@ pub enum MachineBackend {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub struct RenodeMachineBackend {
-    #[serde(flatten)]
-    pub context: toml::Value,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub struct QemuMachineBackend {
-    #[serde(flatten)]
-    pub context: toml::Value,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub struct DockerMachineBackend {
-    #[serde(flatten)]
-    pub context: toml::Value,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
 pub struct MachineConnector {
     pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub interface: Option<String>,
+    pub interface: String,
     #[serde(flatten)]
-    pub context: toml::Value,
+    pub(crate) context: toml::Value,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum Connection {
     Uart(UartConnection),
     Gpio(GpioConnection),
     Network(NetworkConnection),
-    WirelessNetwork(WirelessNetworkConnection),
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct UartConnection {
     pub name: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct GpioConnection {
     pub name: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct NetworkConnection {
     pub name: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub struct WirelessNetworkConnection {
-    pub name: String,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum Storage {
     Virtio(VirtioStorage),
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct VirtioStorage {
     pub name: String,
@@ -204,6 +179,8 @@ mod tests {
     use indoc::indoc;
 
     const FULL_TOML: &str = indoc! {r#"
+        name = 'my system'
+
         [environment-variables]
         SOME_VAR = 'SOME_VAL'
         SOME_VAR2 = 'SOME_VAL2'
@@ -220,7 +197,9 @@ mod tests {
         [[machine]]
         name = "foo"
         bin = 'path/to/foo-firmware'
-        assets = ['path/to/some/dir']
+            [machine.assets]
+            'path/to/some/host/dir' = 'path/on/guest'
+
             [machine.environment-variables]
             M0_VAR = 'M0_VAL'
             M1_VAR = 'M1_VAL'
@@ -241,6 +220,9 @@ mod tests {
         [[machine]]
         name = "bar"
         bin = 'path/to/bar-firmware.bin'
+            [machine.environment-variables]
+            M0_VAR = 'M0_VAL_BAR'
+
             [machine.backend.qemu]
             machine = 'mps2-an385'
             cpu = 'cortex-m3'
@@ -311,11 +293,6 @@ mod tests {
         [[connection]]
         name = "barbiz"
         type = "gpio"
-
-        [[connection]]
-        name = "barbiz-bt"
-        type = "wireless-network"
-        medium = "ble"
 
         [[connection]]
         name = "foobiz"

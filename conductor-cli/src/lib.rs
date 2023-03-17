@@ -1,4 +1,5 @@
 use clap::Parser;
+use std::path::PathBuf;
 
 pub fn parse_args() -> Args {
     Args::parse()
@@ -32,9 +33,18 @@ pub enum Command {
 
 #[derive(Parser, Debug)]
 pub enum System {
+    Check(Check),
     Create(Create),
     Start(Start),
     Stop(Stop),
+}
+
+/// Check a system
+#[derive(Parser, Debug)]
+pub struct Check {
+    /// Path to config file.
+    #[clap(default_value = "conductor.toml")]
+    pub config: PathBuf,
 }
 
 /// Create a new system
