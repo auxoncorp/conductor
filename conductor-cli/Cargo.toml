@@ -1,7 +1,10 @@
 [package]
 name = "conductor-cli"
 version = "0.1.0-dev"
-authors = ["Patrick Barrett <patrick@auxon.com>"]
+authors = [
+    "Patrick Barrett <patrick@auxon.com>",
+    "Jon Lamb <jon@auxon.io>",
+]
 edition = "2021"
 description = "CLI definition for the `conductor` crate."
 homepage = "https://auxon.com"

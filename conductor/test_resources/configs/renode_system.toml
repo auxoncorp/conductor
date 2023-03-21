@@ -1,0 +1,93 @@
+name = 'renode system'
+
+[environment-variables]
+SOME_VAR = 'SOME_VAL'
+SOME_VAR2 = 'SOME_VAL2'
+
+[[machine]]
+name = "m0"
+bin = 'path/to/m0-firmware.elf'
+    [machine.environment-variables]
+    THIS_MACHINE = '0'
+
+    [machine.backend.renode]
+    disable-xwt = true
+    hide-monitor = true
+    console = true
+    platform-descriptions = [
+        '@platforms/cpus/stm32f429.repl',
+    ]
+
+    [[machine.connector]]
+    name = "my-uart"
+    interface = "sysbus.uart0"
+
+    [[machine.connector]]
+    name = "m0-to-host"
+    interface = "sysbus.uart1"
+    pty = "/tmp/m0-uart"
+
+    [[machine.connector]]
+    name = "m0-to-m1-gpio"
+    interface = "sysbus.gpio"
+    source-pin = 7
+
+    [[machine.connector]]
+    name = "m1-to-m0-gpio"
+    interface = "sysbus.gpio"
+    destination-pin = 7
+
+[[machine]]
+name = "m1"
+bin = 'path/to/m1-firmware.elf'
+    [machine.environment-variables]
+    SOME_VAR3 = 'SOME_VAL3'
+    THIS_MACHINE = '1'
+
+    [machine.backend.renode]
+    disable-xwt = true
+    hide-monitor = true
+    console = true
+    platform-descriptions = [
+        '@platforms/cpus/stm32f429.repl',
+    ]
+
+    [[machine.connector]]
+    name = "m1-to-host"
+    interface = "sysbus.uart2"
+    port = 4321
+    emit-config = true
+
+    [[machine.connector]]
+    name = "my-uart"
+    interface = "sysbus.uart3"
+
+    [[machine.connector]]
+    name = "m0-to-m1-gpio"
+    interface = "sysbus.gpio"
+    destination-pin = 4
+
+    [[machine.connector]]
+    name = "m1-to-m0-gpio"
+    interface = "sysbus.gpio"
+    source-pin = 4
+
+[[connection]]
+name = "my-uart"
+type = "uart"
+
+[[connection]]
+name = "m0-to-host"
+type = "uart"
+
+[[connection]]
+name = "m1-to-host"
+type = "uart"
+
+[[connection]]
+name = "m0-to-m1-gpio"
+type = "gpio"
+
+[[connection]]
+name = "m1-to-m0-gpio"
+type = "gpio"

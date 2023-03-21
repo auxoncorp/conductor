@@ -1,7 +1,10 @@
 [package]
 name = "conductor"
 version = "0.1.0-dev"
-authors = ["Patrick Barrett <patrick@auxon.com>"]
+authors = [
+    "Patrick Barrett <patrick@auxon.com>",
+    "Jon Lamb <jon@auxon.io>",
+]
 edition = "2021"
 description = "Development and testing environment management for cyber-physical systems."
 homepage = "https://auxon.com"
@@ -15,6 +18,7 @@ conductor-config = { version = "0.1.0-dev", path = "../conductor-config"}
 
 anyhow = "1.0"
 thiserror = "1.0"
+derive_more = "0.99"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.16", features = ["fmt"] }
