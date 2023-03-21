@@ -3,11 +3,12 @@ use bollard::{
     container,
     container::RemoveContainerOptions,
     exec::{CreateExecOptions, StartExecResults},
-    image::CreateImageOptions,
+    image::{BuildImageOptions, CreateImageOptions},
     Docker,
 };
 use futures_util::{StreamExt, TryStreamExt};
 use std::default::Default;
+use std::path::PathBuf;
 use tracing::{error, trace};
 
 pub async fn run_in_docker(image: impl AsRef<str>, command: Vec<&str>) -> Result<()> {
@@ -87,6 +88,63 @@ pub async fn run_in_docker(image: impl AsRef<str>, command: Vec<&str>) -> Result
     Ok(())
 }
 
+pub async fn build_image_from_dockerfile(name: &str) -> Result<()> {
+    let docker =
+        Docker::connect_with_local_defaults().context("connect to container system service")?;
+
+    let image_context_dir = {
+        // HACK: only supports repo-local images
+        let mut path: PathBuf = env!("CARGO_MANIFEST_DIR").into();
+        path.pop();
+        path.push("images/");
+        path.push(name);
+        trace!("image context: {}", path.display());
+        path
+    };
+    let tarball_bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
+        // TODO: stream tarball
+        let mut tarball = tar::Builder::new(Vec::new());
+        tarball
+            .append_dir_all(".", image_context_dir)
+            .context("build in-memory image tarball")
+            .unwrap();
+
+        tarball
+            .into_inner()
+            .context("finish in-memory image tarball")
+    })
+    .await
+    .context("spawn blocking tokio task to build tarball")??;
+
+    let image_options = BuildImageOptions {
+        dockerfile: "Dockerfile",
+        t: &format!("conductor/{}", name),
+        labels: [
+            ("io.auxon.conductor", ""),
+            ("io.auxon.conductor.universe", "Foo"),
+            ("io.auxon.conductor.image-context-hash", "ABCDEF01"),
+        ]
+        .into(),
+        ..Default::default()
+    };
+
+    let mut build_image_progress =
+        docker.build_image(image_options, None, Some(tarball_bytes.into()));
+
+    // receive progress reports on image being built
+    while let Some(progress) = build_image_progress.next().await {
+        //trace!(?response, "build image progress");
+        if let Some(msg) = progress?.stream {
+            // TODO: print in the CLI handler
+            print!("{}", msg);
+        }
+    }
+
+    trace!("image built");
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -124,5 +182,13 @@ mod tests {
         const IMAGE: &str = "docker.io/ubuntu:latest";
 
         run_in_docker(IMAGE, vec!["uname", "-a"]).await
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn build_image() -> Result<()> {
+        const IMAGE: &str = "renode";
+
+        build_image_from_dockerfile(IMAGE).await
     }
 }
