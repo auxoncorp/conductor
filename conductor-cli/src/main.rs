@@ -1,18 +1,19 @@
-use conductor_cli::Command;
+mod opts;
+
+use opts::{Command, System};
 use std::error::Error;
 
-mod config;
-mod types;
+use conductor_config::Config;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let args = conductor_cli::parse_args();
+    let args = opts::parse_args();
 
     match &args.command {
         Command::System(c) => match c {
-            conductor_cli::System::Check(check) => {
+            System::Check(check) => {
                 println!("Checking configuration file '{}'", check.config.display());
-                let cfg = config::Config::read(&check.config)?;
+                let cfg = Config::read(&check.config)?;
                 println!("{cfg:#?}");
                 Ok(())
             }
