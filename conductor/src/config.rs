@@ -25,10 +25,14 @@ pub enum ConfigError {
     MissingConnectorConnection(ConnectionName),
     #[error("A machine must have a name")]
     EmptyMachineName,
+    #[error("The host binary '{_0:?}' for machine '{_1}' does not exist")]
+    NonExistentMachineBin(PathBuf, MachineName),
     #[error("The host asset '{_0:?}' for machine '{_1}' does not exist")]
     NonExistentMachineAsset(PathBuf, MachineName),
     #[error("Machine '{_0}' does not have a backend specified")]
     NoMachineBackend(MachineName),
+    #[error("Machine '{_0}' does not have a bin path specified")]
+    NoMachineBin(MachineName),
     #[error("Found duplicate machines with name '{_0}'")]
     DupMachine(MachineName),
     #[error(transparent)]
@@ -68,6 +72,7 @@ pub struct Global {
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct Machine {
     pub name: MachineName,
+    pub bin: PathBuf,
     pub environment_variables: BTreeMap<String, String>,
     pub assets: BTreeMap<PathBuf, PathBuf>,
     pub backend: MachineBackend,
@@ -166,6 +171,12 @@ impl TryFrom<(conductor_config::Machine, &BTreeSet<Connection>)> for Machine {
             .as_ref()
             .and_then(MachineName::new)
             .ok_or(ConfigError::EmptyMachineName)?;
+        let bin = value
+            .bin
+            .ok_or_else(|| ConfigError::NoMachineBin(name.clone()))?;
+        if !bin.exists() {
+            return Err(ConfigError::NonExistentMachineBin(bin, name));
+        }
         for host_asset in value.assets.keys() {
             if !host_asset.exists() {
                 return Err(ConfigError::NonExistentMachineAsset(
@@ -186,6 +197,7 @@ impl TryFrom<(conductor_config::Machine, &BTreeSet<Connection>)> for Machine {
         }
         Ok(Self {
             name,
+            bin,
             environment_variables: value.environment_variables,
             assets: value.assets,
             backend,
