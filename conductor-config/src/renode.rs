@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
-pub struct RenodeMachineBackend {
+pub struct RenodeMachineProvider {
     #[serde(flatten)]
     pub cli: RenodeCliConfig,
 

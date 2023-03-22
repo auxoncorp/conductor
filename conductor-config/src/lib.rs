@@ -10,10 +10,10 @@ pub use connector_properties::{
     ConnectorPropertiesError, GpioConnectorProperties, NetworkConnectorProperties,
     UartConnectorProperties,
 };
-pub use docker::DockerMachineBackend;
-pub use gazebo::GazeboWorldBackend;
-pub use qemu::{QemuMachineBackend, QemuMachineProtocolConfig};
-pub use renode::{RenodeCliConfig, RenodeMachineBackend, RenodeScriptConfig};
+pub use docker::DockerMachineProvider;
+pub use gazebo::GazeboWorldProvider;
+pub use qemu::{QemuMachineProtocolConfig, QemuMachineProvider};
+pub use renode::{RenodeCliConfig, RenodeMachineProvider, RenodeScriptConfig};
 
 mod connector_properties;
 mod docker;
@@ -75,13 +75,13 @@ pub struct World {
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub assets: BTreeMap<PathBuf, PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub backend: Option<WorldBackend>,
+    pub provider: Option<WorldProvider>,
 }
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum WorldBackend {
-    Gazebo(GazeboWorldBackend),
+pub enum WorldProvider {
+    Gazebo(GazeboWorldProvider),
 }
 
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
@@ -96,17 +96,17 @@ pub struct Machine {
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub assets: BTreeMap<PathBuf, PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub backend: Option<MachineBackend>,
+    pub provider: Option<MachineProvider>,
     #[serde(alias = "connector", skip_serializing_if = "Vec::is_empty")]
     pub connectors: Vec<MachineConnector>,
 }
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum MachineBackend {
-    Renode(RenodeMachineBackend),
-    Qemu(QemuMachineBackend),
-    Docker(DockerMachineBackend),
+pub enum MachineProvider {
+    Renode(RenodeMachineProvider),
+    Qemu(QemuMachineProvider),
+    Docker(DockerMachineProvider),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -189,7 +189,7 @@ mod tests {
 
         [[world]]
         name = 'a world'
-            [world.backend.gazebo]
+            [world.provider.gazebo]
             world-path = 'path/to/my.sdf'
             config-path = 'path/to/gz.conf'
             plugins-path = 'path/to/plugins'
@@ -206,7 +206,7 @@ mod tests {
             M0_VAR = 'M0_VAL'
             M1_VAR = 'M1_VAL'
 
-            [machine.backend.docker]
+            [machine.provider.docker]
             foo = "bar"
 
             [[machine.connector]]
@@ -225,12 +225,12 @@ mod tests {
             [machine.environment-variables]
             M0_VAR = 'M0_VAL_BAR'
 
-            [machine.backend.qemu]
+            [machine.provider.qemu]
             machine = 'mps2-an385'
             cpu = 'cortex-m3'
             memory = '16M'
             no-graphic = true
-            [machine.backend.qemu.qmp]
+            [machine.provider.qemu.qmp]
             port = 4444
             wait = false
             server = true
@@ -249,7 +249,7 @@ mod tests {
         [[machine]]
         name = "biz"
         bin = 'path/to/biz-firmware.elf'
-            [machine.backend.renode]
+            [machine.provider.renode]
             disable-xwt = true
             console = true
             platform-descriptions = [
