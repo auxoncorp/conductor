@@ -52,7 +52,7 @@ pub struct Config {
     pub global: Global,
     // TODO
     //pub worlds: Vec<World>,
-    pub machines: BTreeSet<Machine>,
+    pub machines: Vec<Machine>,
     pub connections: BTreeSet<Connection>,
     // TODO
     //pub storages: Vec<Storage>,
@@ -76,7 +76,7 @@ pub struct Machine {
     pub environment_variables: BTreeMap<String, String>,
     pub assets: BTreeMap<PathBuf, PathBuf>,
     pub provider: MachineProvider,
-    pub connectors: BTreeSet<MachineConnector>,
+    pub connectors: Vec<MachineConnector>,
 }
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
@@ -174,26 +174,16 @@ impl TryFrom<(conductor_config::Machine, &BTreeSet<Connection>)> for Machine {
         let bin = value
             .bin
             .ok_or_else(|| ConfigError::NoMachineBin(name.clone()))?;
-        if !bin.exists() {
-            return Err(ConfigError::NonExistentMachineBin(bin, name));
-        }
-        for host_asset in value.assets.keys() {
-            if !host_asset.exists() {
-                return Err(ConfigError::NonExistentMachineAsset(
-                    host_asset.clone(),
-                    name,
-                ));
-            }
-        }
         let provider = value
             .provider
             .ok_or_else(|| ConfigError::NoMachineProvider(name.clone()))?;
-        let mut connectors = BTreeSet::new();
+        let mut connectors = Vec::with_capacity(value.connectors.len());
         for c in value.connectors.into_iter() {
             let c = MachineConnector::try_from((c, connections))?;
-            if let Some(prev_con) = connectors.replace(c) {
-                return Err(ConfigError::DupConnector(name, prev_con.name));
+            if connectors.contains(&c) {
+                return Err(ConfigError::DupConnector(name, c.name));
             }
+            connectors.push(c);
         }
         Ok(Self {
             name,
@@ -279,13 +269,15 @@ impl TryFrom<conductor_config::NetworkConnection> for NetworkConnection {
 
 impl Config {
     pub fn read<P: AsRef<Path>>(config_path: P) -> Result<Self, ConfigReadError> {
-        let cfg = conductor_config::Config::read(config_path)?;
         // TODO(jon@auxon.io)
         // basic top-level validation
         // names exist
         // providers are provided
         // resolve and check connectors to their connections
         // ...
+
+        let cfg = conductor_config::Config::read(&config_path)?;
+        let cfg_dir = config_path.as_ref().parent();
 
         let mut connections = BTreeSet::new();
         for c in cfg.connections.into_iter() {
@@ -295,18 +287,35 @@ impl Config {
             }
         }
 
-        let mut machines: BTreeSet<Machine> = BTreeSet::new();
+        let mut machines: Vec<Machine> = Vec::with_capacity(cfg.machines.len());
         for m in cfg.machines.into_iter() {
-            let m = Machine::try_from((m, &connections))?;
-
+            let mut m = Machine::try_from((m, &connections))?;
             let contains_name_already = machines.iter().any(|known_m| known_m.name == m.name);
             if contains_name_already {
                 return Err(ConfigError::DupMachine(m.name).into());
             }
+            // Convert relative paths on the host to absolute, where possible
+            if let Some(cfg_dir) = cfg_dir {
+                if m.bin.is_relative() {
+                    m.bin = cfg_dir.join(m.bin);
+                }
+                if !m.bin.exists() {
+                    return Err(ConfigError::NonExistentMachineBin(m.bin.clone(), m.name).into());
+                }
 
-            if let Some(prev_m) = machines.replace(m) {
-                return Err(ConfigError::DupMachine(prev_m.name).into());
+                let assets = m.assets.clone();
+                m.assets.clear();
+                for (mut host_asset, guest_asset) in assets.into_iter() {
+                    if host_asset.is_relative() {
+                        host_asset = cfg_dir.join(host_asset);
+                    }
+                    if !host_asset.exists() {
+                        return Err(ConfigError::NonExistentMachineAsset(host_asset, m.name).into());
+                    }
+                    m.assets.insert(host_asset, guest_asset);
+                }
             }
+            machines.push(m);
         }
 
         Ok(Self {
