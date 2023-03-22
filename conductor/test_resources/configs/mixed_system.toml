@@ -4,9 +4,9 @@ name = 'my system'
 SOME_VAR = 'SOME_VAL'
 SOME_VAR2 = 'SOME_VAL2'
 
-[[simulator]]
+[[world]]
 name = 'a world'
-    [simulator.backend.gazebo]
+    [world.backend.gazebo]
     world-path = 'path/to/my.sdf'
     config-path = 'path/to/gz.conf'
     plugins-path = 'path/to/plugins'

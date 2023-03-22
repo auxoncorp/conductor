@@ -51,7 +51,7 @@ pub enum ConfigReadError {
 pub struct Config {
     pub global: Global,
     // TODO
-    //pub simulators: Vec<Simulator>,
+    //pub worlds: Vec<World>,
     pub machines: BTreeSet<Machine>,
     pub connections: BTreeSet<Connection>,
     // TODO
@@ -65,9 +65,9 @@ pub struct Global {
 }
 
 // TODO
-// pub struct Simulator {
-// pub enum SimulatorBackend {
-// pub struct GazeboSimulatorBackend {
+// pub struct World {
+// pub enum WorldBackend {
+// pub struct GazeboWorldBackend {
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct Machine {

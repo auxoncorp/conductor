@@ -9,7 +9,7 @@ impl Default for SystemName {
     }
 }
 
-stringy_newtype!(SimulatorName);
+stringy_newtype!(WorldName);
 stringy_newtype!(MachineName);
 stringy_newtype!(ConnectionName);
 stringy_newtype!(InterfaceName);

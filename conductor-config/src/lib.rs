@@ -11,7 +11,7 @@ pub use connector_properties::{
     UartConnectorProperties,
 };
 pub use docker::DockerMachineBackend;
-pub use gazebo::GazeboSimulatorBackend;
+pub use gazebo::GazeboWorldBackend;
 pub use qemu::{QemuMachineBackend, QemuMachineProtocolConfig};
 pub use renode::{RenodeCliConfig, RenodeMachineBackend, RenodeScriptConfig};
 
@@ -43,8 +43,8 @@ pub struct Config {
     #[serde(flatten)]
     pub global: Global,
 
-    #[serde(alias = "simulator", skip_serializing_if = "Vec::is_empty")]
-    pub simulators: Vec<Simulator>,
+    #[serde(alias = "world", skip_serializing_if = "Vec::is_empty")]
+    pub worlds: Vec<World>,
 
     #[serde(alias = "machine", skip_serializing_if = "Vec::is_empty")]
     pub machines: Vec<Machine>,
@@ -67,7 +67,7 @@ pub struct Global {
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
-pub struct Simulator {
+pub struct World {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -75,13 +75,13 @@ pub struct Simulator {
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub assets: BTreeMap<PathBuf, PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub backend: Option<SimulatorBackend>,
+    pub backend: Option<WorldBackend>,
 }
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum SimulatorBackend {
-    Gazebo(GazeboSimulatorBackend),
+pub enum WorldBackend {
+    Gazebo(GazeboWorldBackend),
 }
 
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
@@ -187,9 +187,9 @@ mod tests {
         SOME_VAR = 'SOME_VAL'
         SOME_VAR2 = 'SOME_VAL2'
 
-        [[simulator]]
+        [[world]]
         name = 'a world'
-            [simulator.backend.gazebo]
+            [world.backend.gazebo]
             world-path = 'path/to/my.sdf'
             config-path = 'path/to/gz.conf'
             plugins-path = 'path/to/plugins'
@@ -315,7 +315,7 @@ mod tests {
         let cfg = Config::read(&cfg_path).unwrap();
 
         assert_eq!(cfg.global.environment_variables.len(), 2);
-        assert_eq!(cfg.simulators.len(), 1);
+        assert_eq!(cfg.worlds.len(), 1);
         assert_eq!(cfg.machines.len(), 3);
     }
 }
