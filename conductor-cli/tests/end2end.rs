@@ -1,31 +1,38 @@
-use anyhow::Result;
 use assert_cmd::prelude::*;
+use predicates::prelude::*;
 use std::process::Command;
-use std::str;
 
-#[test]
-fn exists() -> Result<()> {
-    Command::cargo_bin("conductor")?;
-
-    Ok(())
+fn conductor_command() -> Command {
+    Command::cargo_bin("conductor").expect("get conductor binary")
 }
 
 #[test]
-fn can_run() -> Result<()> {
-    Command::cargo_bin("conductor")?.output()?;
-
-    Ok(())
+fn exists() {
+    conductor_command();
 }
 
 #[test]
-fn bare_command_gives_help() -> Result<()> {
-    let out = Command::cargo_bin("conductor")?.output()?;
+fn can_run() {
+    conductor_command().output().expect("run");
+}
 
-    assert!(!out.status.success(), "bare command didn't exit with fail");
-    assert!(
-        str::from_utf8(&out.stderr)?.contains("Usage:"),
-        "bare command didn't show help"
-    );
+#[test]
+fn bare_command_gives_help() {
+    let mut cmd = conductor_command();
 
-    Ok(())
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("Usage"));
+}
+
+#[test]
+fn system_check_finds_right_config() {
+    let mut cmd = conductor_command();
+
+    cmd.args(["system", "check"]);
+    cmd.current_dir("../test_resources/systems/single-docker-machine/");
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("container system"));
 }

@@ -1,24 +1,17 @@
+mod commands;
 mod opts;
 
-use opts::{Command, System};
-use std::error::Error;
-
-use conductor_config::Config;
+use anyhow::Result;
+use opts::Command;
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
+async fn main() -> Result<()> {
     let args = opts::parse_args();
 
+    tracing_subscriber::fmt::init();
+
     match &args.command {
-        Command::System(c) => match c {
-            System::Check(check) => {
-                println!("Checking configuration file '{}'", check.config.display());
-                let cfg = Config::read(&check.config)?;
-                println!("{cfg:#?}");
-                Ok(())
-            }
-            _ => todo!("system"),
-        },
+        Command::System(c) => commands::system::handle(c),
         Command::Machine(_) => todo!("machine"),
     }
 }

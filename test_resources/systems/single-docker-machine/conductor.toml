@@ -1,0 +1,11 @@
+name = 'container system'
+
+[environment-variables]
+SOME_VAR = 'SOME_VAL'
+SOME_VAR2 = 'SOME_VAL2'
+
+#[[machine]]
+#name = "application"
+#    [machine.provider.docker]
+#    containerfile = 'Dockerfile'
+#    volume = "conf/:/app/conf/"
