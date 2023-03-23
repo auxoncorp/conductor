@@ -1,5 +1,6 @@
 pub mod config;
 pub mod containers;
+pub mod provider;
 pub mod system;
 pub mod types;
 

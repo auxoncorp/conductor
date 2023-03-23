@@ -1,6 +1,9 @@
-use crate::types::{ConnectionName, InterfaceName, MachineName, SystemName};
+use crate::types::{
+    ConnectionKind, ConnectionName, InterfaceName, MachineName, MachineProviderKind, SystemName,
+};
 use conductor_config::{
-    ConnectorPropertiesError, GpioConnectorProperties, MachineProvider, NetworkConnectorProperties,
+    ConnectorPropertiesError, DockerMachineProvider, GpioConnectorProperties,
+    NetworkConnectorProperties, QemuMachineProvider, RenodeMachineProvider,
     UartConnectorProperties,
 };
 use derive_more::From;
@@ -71,12 +74,35 @@ pub struct Global {
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct Machine {
+    pub base: BaseMachine,
+    pub provider: MachineProvider,
+}
+
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub struct BaseMachine {
     pub name: MachineName,
     pub bin: PathBuf,
     pub environment_variables: BTreeMap<String, String>,
     pub assets: BTreeMap<PathBuf, PathBuf>,
-    pub provider: MachineProvider,
     pub connectors: Vec<MachineConnector>,
+}
+
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub enum MachineProvider {
+    Renode(RenodeMachineProvider),
+    Qemu(QemuMachineProvider),
+    Docker(DockerMachineProvider),
+}
+
+impl MachineProvider {
+    pub fn kind(&self) -> MachineProviderKind {
+        use MachineProvider::*;
+        match self {
+            Renode(_) => MachineProviderKind::Renode,
+            Qemu(_) => MachineProviderKind::Qemu,
+            Docker(_) => MachineProviderKind::Docker,
+        }
+    }
 }
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
@@ -91,17 +117,6 @@ pub enum ConnectorProperties {
     Uart(UartConnectorProperties),
     Gpio(GpioConnectorProperties),
     Network(NetworkConnectorProperties),
-}
-
-// TODO(jon@auxon.io) add util helpers
-// symmetrical or asymmetrical
-// guest-to-guest
-// guest-to-host
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum ConnectionKind {
-    Uart,
-    Gpio,
-    Network,
 }
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
@@ -186,12 +201,14 @@ impl TryFrom<(conductor_config::Machine, &BTreeSet<Connection>)> for Machine {
             connectors.push(c);
         }
         Ok(Self {
-            name,
-            bin,
-            environment_variables: value.environment_variables,
-            assets: value.assets,
-            provider,
-            connectors,
+            base: BaseMachine {
+                name,
+                bin,
+                environment_variables: value.environment_variables,
+                assets: value.assets,
+                connectors,
+            },
+            provider: provider.into(),
         })
     }
 }
@@ -210,6 +227,9 @@ impl TryFrom<(conductor_config::MachineConnector, &BTreeSet<Connection>)> for Ma
             .iter()
             .find(|c| c.name() == &name)
             .ok_or_else(|| ConfigError::MissingConnectorConnection(name.clone()))?;
+        // TODO - do semantic checks on props
+        // GPIO can only specify src or dest pin, not both
+        // UART can only have one kind of host integration
         let properties = match connection.kind() {
             ConnectionKind::Uart => UartConnectorProperties::try_from(&value)?.into(),
             ConnectionKind::Gpio => GpioConnectorProperties::try_from(&value)?.into(),
@@ -220,6 +240,16 @@ impl TryFrom<(conductor_config::MachineConnector, &BTreeSet<Connection>)> for Ma
             interface,
             properties,
         })
+    }
+}
+
+impl From<conductor_config::MachineProvider> for MachineProvider {
+    fn from(value: conductor_config::MachineProvider) -> Self {
+        match value {
+            conductor_config::MachineProvider::Renode(p) => MachineProvider::Renode(p),
+            conductor_config::MachineProvider::Qemu(p) => MachineProvider::Qemu(p),
+            conductor_config::MachineProvider::Docker(p) => MachineProvider::Docker(p),
+        }
     }
 }
 
@@ -272,8 +302,16 @@ impl Config {
         // TODO(jon@auxon.io)
         // basic top-level validation
         // names exist
+        // canonical names or provider-specific canonicalization, renode doesn't like spaces
         // providers are provided
         // resolve and check connectors to their connections
+        //
+        // provider-specific checks
+        // renode
+        //   if more than one machine per renode instance
+        //   check for conflicts (env var keys, CLI config/opts, etc)
+        //   script mut excl with script path, same for plat desc and commands, etc
+        //   empty platform desc
         // ...
 
         let cfg = conductor_config::Config::read(&config_path)?;
@@ -290,29 +328,37 @@ impl Config {
         let mut machines: Vec<Machine> = Vec::with_capacity(cfg.machines.len());
         for m in cfg.machines.into_iter() {
             let mut m = Machine::try_from((m, &connections))?;
-            let contains_name_already = machines.iter().any(|known_m| known_m.name == m.name);
+            let contains_name_already = machines
+                .iter()
+                .any(|known_m| known_m.base.name == m.base.name);
             if contains_name_already {
-                return Err(ConfigError::DupMachine(m.name).into());
+                return Err(ConfigError::DupMachine(m.base.name).into());
             }
             // Convert relative paths on the host to absolute, where possible
             if let Some(cfg_dir) = cfg_dir {
-                if m.bin.is_relative() {
-                    m.bin = cfg_dir.join(m.bin);
+                if m.base.bin.is_relative() {
+                    m.base.bin = cfg_dir.join(m.base.bin);
                 }
-                if !m.bin.exists() {
-                    return Err(ConfigError::NonExistentMachineBin(m.bin.clone(), m.name).into());
+                if !m.base.bin.exists() {
+                    return Err(ConfigError::NonExistentMachineBin(
+                        m.base.bin.clone(),
+                        m.base.name,
+                    )
+                    .into());
                 }
 
-                let assets = m.assets.clone();
-                m.assets.clear();
+                let assets = m.base.assets.clone();
+                m.base.assets.clear();
                 for (mut host_asset, guest_asset) in assets.into_iter() {
                     if host_asset.is_relative() {
                         host_asset = cfg_dir.join(host_asset);
                     }
                     if !host_asset.exists() {
-                        return Err(ConfigError::NonExistentMachineAsset(host_asset, m.name).into());
+                        return Err(
+                            ConfigError::NonExistentMachineAsset(host_asset, m.base.name).into(),
+                        );
                     }
-                    m.assets.insert(host_asset, guest_asset);
+                    m.base.assets.insert(host_asset, guest_asset);
                 }
             }
             machines.push(m);

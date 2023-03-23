@@ -16,9 +16,15 @@ pub enum ConnectorPropertiesError {
         #[source]
         error: Box<toml::de::Error>,
     },
+    #[error("Failed to parse connector '{name}' network properties")]
+    ParseNetwork {
+        name: String,
+        #[source]
+        error: Box<toml::de::Error>,
+    },
 }
 
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Serialize, Deserialize)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub struct UartConnectorProperties {
     // TODO(jon@auxon.io) we may abstract some of this and move it to the
@@ -47,8 +53,8 @@ impl TryFrom<&MachineConnector> for UartConnectorProperties {
     }
 }
 
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", default)]
 pub struct GpioConnectorProperties {
     pub source_pin: Option<u16>,
     pub destination_pin: Option<u16>,
@@ -71,16 +77,22 @@ impl TryFrom<&MachineConnector> for GpioConnectorProperties {
     }
 }
 
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", default)]
 pub struct NetworkConnectorProperties {
-    // TODO(jon@auxon.io) TBD
+    pub promiscuous_mode: Option<bool>,
 }
 
 impl TryFrom<&MachineConnector> for NetworkConnectorProperties {
     type Error = ConnectorPropertiesError;
 
-    fn try_from(_value: &MachineConnector) -> Result<Self, Self::Error> {
-        Ok(NetworkConnectorProperties {})
+    fn try_from(value: &MachineConnector) -> Result<Self, Self::Error> {
+        let props = value.context.clone().try_into().map_err(|e| {
+            ConnectorPropertiesError::ParseNetwork {
+                name: value.name.clone(),
+                error: Box::new(e),
+            }
+        })?;
+        Ok(props)
     }
 }

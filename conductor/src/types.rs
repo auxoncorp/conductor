@@ -26,6 +26,33 @@ impl MachineRuntimeId {
     }
 }
 
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display)]
+pub enum MachineProviderKind {
+    Renode,
+    Qemu,
+    Docker,
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display)]
+pub enum ConnectionKind {
+    Uart,
+    Gpio,
+    Network,
+}
+
+impl ConnectionKind {
+    /// Any connector to this connection can be either the
+    /// initiator or the recipient of a transfer
+    pub fn is_symmetrical(self) -> bool {
+        use ConnectionKind::*;
+        match self {
+            Uart => true,
+            Gpio => false,
+            Network => true,
+        }
+    }
+}
+
 #[macro_export]
 macro_rules! stringy_newtype {
     ($t:ident) => {

@@ -26,3 +26,5 @@ tar = "0.4.38"
 
 [dev-dependencies]
 tracing-test = "0.2"
+assert_cmd = "2.0.10"
+indoc = "2"
