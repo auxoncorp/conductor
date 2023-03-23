@@ -39,12 +39,8 @@ jobs:
       - run: cargo doc --workspace --bins --examples --all-features --no-deps
 
   test:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        rust: [stable]
-        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ubuntu-latest
+    container: rust:latest
     steps:
       - uses: actions/checkout@v3
-      - run: rustup toolchain install stable --profile minimal
       - run: cargo test --workspace --bins --examples --tests --benches --all-targets --all-features --no-fail-fast

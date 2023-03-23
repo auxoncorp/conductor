@@ -43,8 +43,7 @@ pub enum System {
 #[derive(Parser, Debug)]
 pub struct Check {
     /// Path to config file.
-    #[clap(default_value = "conductor.toml")]
-    pub config: PathBuf,
+    pub config: Option<PathBuf>,
 }
 
 /// Create a new system

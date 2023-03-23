@@ -1,0 +1,15 @@
+name: windows
+on: [push]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  build:
+    runs-on:  windows-latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: rustup toolchain install stable --profile minimal
+      - run: cargo build --workspace --bins --examples --tests --benches --all-targets --all-features

@@ -24,17 +24,41 @@ mod renode;
 pub const DEFAULT_CONFIG_FILE_NAME: &str = "conductor.toml";
 pub const DEFAULT_SYSTEM_NAME: &str = "default-system";
 
+/// Searches for the `conductor.toml` file in the current working directory and above
+pub fn find_config_file() -> Result<PathBuf, ConfigReadError> {
+    use std::env;
+    let mut wd = env::current_dir()?;
+
+    while wd.as_os_str() != "/" {
+        wd.push(DEFAULT_CONFIG_FILE_NAME);
+
+        if wd.is_file() {
+            return Ok(wd);
+        }
+
+        wd.pop();
+        wd.pop();
+    }
+
+    Err(ConfigReadError::SearchFailed {
+        search_path: env::current_dir()?,
+    })
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigReadError {
     #[error("Error in configuration file {}", .path.display())]
     ConfigToml {
         path: PathBuf,
         #[source]
-        error: Box<toml::de::Error>,
+        error: toml::de::Error,
     },
 
+    #[error("Configuration file not found in {} or any parent directory", .search_path.display())]
+    SearchFailed { search_path: PathBuf },
+
     #[error("Ecountered an IO error while reading the configuration file")]
-    Io(#[from] Box<io::Error>),
+    Io(#[from] io::Error),
 }
 
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
@@ -159,10 +183,10 @@ pub struct VirtioStorage {
 
 impl Config {
     pub fn read<P: AsRef<Path>>(config_path: P) -> Result<Self, ConfigReadError> {
-        let content = fs::read_to_string(&config_path).map_err(Box::new)?;
+        let content = fs::read_to_string(&config_path)?;
         Self::from_str(&content).map_err(|e| ConfigReadError::ConfigToml {
             path: config_path.as_ref().to_owned(),
-            error: Box::new(e),
+            error: e,
         })
     }
 }
