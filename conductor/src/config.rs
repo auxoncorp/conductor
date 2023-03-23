@@ -1,6 +1,7 @@
 use crate::types::{ConnectionName, InterfaceName, MachineName, SystemName};
 use conductor_config::{
-    ConnectorPropertiesError, GpioConnectorProperties, MachineProvider, NetworkConnectorProperties,
+    ConnectorPropertiesError, DockerMachineProvider, GpioConnectorProperties,
+    NetworkConnectorProperties, QemuMachineProvider, RenodeMachineProvider,
     UartConnectorProperties,
 };
 use derive_more::From;
@@ -72,11 +73,17 @@ pub struct Global {
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct Machine {
     pub name: MachineName,
-    pub bin: PathBuf,
     pub environment_variables: BTreeMap<String, String>,
     pub assets: BTreeMap<PathBuf, PathBuf>,
     pub provider: MachineProvider,
     pub connectors: BTreeSet<MachineConnector>,
+}
+
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub enum MachineProvider {
+    Renode(RenodeMachineProvider),
+    Qemu(QemuMachineProvider),
+    Docker(DockerMachineProvider),
 }
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
@@ -171,12 +178,6 @@ impl TryFrom<(conductor_config::Machine, &BTreeSet<Connection>)> for Machine {
             .as_ref()
             .and_then(MachineName::new)
             .ok_or(ConfigError::EmptyMachineName)?;
-        let bin = value
-            .bin
-            .ok_or_else(|| ConfigError::NoMachineBin(name.clone()))?;
-        if !bin.exists() {
-            return Err(ConfigError::NonExistentMachineBin(bin, name));
-        }
         for host_asset in value.assets.keys() {
             if !host_asset.exists() {
                 return Err(ConfigError::NonExistentMachineAsset(
@@ -187,7 +188,8 @@ impl TryFrom<(conductor_config::Machine, &BTreeSet<Connection>)> for Machine {
         }
         let provider = value
             .provider
-            .ok_or_else(|| ConfigError::NoMachineProvider(name.clone()))?;
+            .ok_or_else(|| ConfigError::NoMachineProvider(name.clone()))?
+            .try_into()?;
         let mut connectors = BTreeSet::new();
         for c in value.connectors.into_iter() {
             let c = MachineConnector::try_from((c, connections))?;
@@ -197,12 +199,44 @@ impl TryFrom<(conductor_config::Machine, &BTreeSet<Connection>)> for Machine {
         }
         Ok(Self {
             name,
-            bin,
             environment_variables: value.environment_variables,
             assets: value.assets,
             provider,
             connectors,
         })
+    }
+}
+
+impl TryFrom<conductor_config::MachineProvider> for MachineProvider {
+    type Error = ConfigError;
+
+    fn try_from(value: conductor_config::MachineProvider) -> Result<Self, Self::Error> {
+        let name = MachineName::new("unknown").unwrap();
+        match value {
+            conductor_config::MachineProvider::Docker(d) => Ok(MachineProvider::Docker(d)),
+            conductor_config::MachineProvider::Renode(r) => {
+                let bin = r
+                    .bin
+                    .as_ref()
+                    .ok_or_else(|| ConfigError::NoMachineBin(name.clone()))?;
+                if !bin.exists() {
+                    return Err(ConfigError::NonExistentMachineBin(bin.to_path_buf(), name));
+                }
+
+                Ok(MachineProvider::Renode(r))
+            }
+            conductor_config::MachineProvider::Qemu(q) => {
+                let bin = q
+                    .bin
+                    .as_ref()
+                    .ok_or_else(|| ConfigError::NoMachineBin(name.clone()))?;
+                if !bin.exists() {
+                    return Err(ConfigError::NonExistentMachineBin(bin.to_path_buf(), name));
+                }
+
+                Ok(MachineProvider::Qemu(q))
+            }
+        }
     }
 }
 

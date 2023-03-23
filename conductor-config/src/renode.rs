@@ -9,6 +9,9 @@ pub struct RenodeMachineProvider {
 
     #[serde(flatten)]
     pub resc: RenodeScriptConfig,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bin: Option<PathBuf>,
 }
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default, Serialize, Deserialize)]

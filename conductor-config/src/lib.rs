@@ -113,8 +113,6 @@ pub enum WorldProvider {
 pub struct Machine {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub bin: Option<PathBuf>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub environment_variables: BTreeMap<String, String>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
