@@ -23,6 +23,8 @@ derive_more = "0.99"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1.37"
 tar = "0.4.38"
+petgraph = { version = "0.6", default-features = false }
+itertools = "0.10"
 
 [dev-dependencies]
 tracing-test = "0.2"

@@ -1,5 +1,11 @@
-use crate::{config::BaseMachine, types::ConnectionKind};
+use crate::component::Component;
+use crate::config::{BaseMachine, MachineConnector};
+use crate::types::{
+    ComponentName, ConnectionKind, EnvironmentVariableKeyValuePairs, HostToGuestAssetPaths,
+    ProviderKind,
+};
 use conductor_config::RenodeMachineProvider;
+use derive_more::Display;
 
 pub use resc::RenodeScriptGen;
 
@@ -20,8 +26,31 @@ impl RenodeConnectionKindExt for ConnectionKind {
     }
 }
 
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display)]
+#[display(fmt = "{}:{}", "self.provider()", "self.base.name")]
 pub struct RenodeMachine {
     pub base: BaseMachine,
     pub provider: RenodeMachineProvider,
+}
+
+impl Component for RenodeMachine {
+    fn name(&self) -> ComponentName {
+        self.base.name.clone().into()
+    }
+
+    fn provider(&self) -> ProviderKind {
+        ProviderKind::Renode
+    }
+
+    fn environment_variables(&self) -> &EnvironmentVariableKeyValuePairs {
+        &self.base.environment_variables
+    }
+
+    fn assets(&self) -> &HostToGuestAssetPaths {
+        &self.base.assets
+    }
+
+    fn connectors(&self) -> &[MachineConnector] {
+        &self.base.connectors
+    }
 }

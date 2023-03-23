@@ -1,14 +1,16 @@
 use crate::types::{
-    ConnectionKind, ConnectionName, InterfaceName, MachineName, MachineProviderKind, SystemName,
+    ConnectionKind, ConnectionName, EnvironmentVariableKeyValuePairs, HostToGuestAssetPaths,
+    InterfaceName, MachineName, ProviderKind, SystemName,
 };
 use conductor_config::{
     ConnectorPropertiesError, DockerMachineProvider, GpioConnectorProperties,
     NetworkConnectorProperties, QemuMachineProvider, RenodeMachineProvider,
     UartConnectorProperties,
 };
+use derive_more::Display;
 use derive_more::From;
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeSet,
     path::{Path, PathBuf},
 };
 
@@ -64,7 +66,7 @@ pub struct Config {
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct Global {
     pub name: SystemName,
-    pub environment_variables: BTreeMap<String, String>,
+    pub environment_variables: EnvironmentVariableKeyValuePairs,
 }
 
 // TODO
@@ -82,8 +84,8 @@ pub struct Machine {
 pub struct BaseMachine {
     pub name: MachineName,
     pub bin: PathBuf,
-    pub environment_variables: BTreeMap<String, String>,
-    pub assets: BTreeMap<PathBuf, PathBuf>,
+    pub environment_variables: EnvironmentVariableKeyValuePairs,
+    pub assets: HostToGuestAssetPaths,
     pub connectors: Vec<MachineConnector>,
 }
 
@@ -95,12 +97,12 @@ pub enum MachineProvider {
 }
 
 impl MachineProvider {
-    pub fn kind(&self) -> MachineProviderKind {
+    pub fn kind(&self) -> ProviderKind {
         use MachineProvider::*;
         match self {
-            Renode(_) => MachineProviderKind::Renode,
-            Qemu(_) => MachineProviderKind::Qemu,
-            Docker(_) => MachineProviderKind::Docker,
+            Renode(_) => ProviderKind::Renode,
+            Qemu(_) => ProviderKind::Qemu,
+            Docker(_) => ProviderKind::Docker,
         }
     }
 }
@@ -119,10 +121,14 @@ pub enum ConnectorProperties {
     Network(NetworkConnectorProperties),
 }
 
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display)]
+#[display(fmt = "{}")]
 pub enum Connection {
+    #[display(fmt = "{}:{}", "self.kind()", "self.name()")]
     Uart(UartConnection),
+    #[display(fmt = "{}:{}", "self.kind()", "self.name()")]
     Gpio(GpioConnection),
+    #[display(fmt = "{}:{}", "self.kind()", "self.name()")]
     Network(NetworkConnection),
 }
 
@@ -146,17 +152,20 @@ impl Connection {
     }
 }
 
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display)]
+#[display(fmt = "{}", name)]
 pub struct UartConnection {
     pub name: ConnectionName,
 }
 
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display)]
+#[display(fmt = "{}", name)]
 pub struct GpioConnection {
     pub name: ConnectionName,
 }
 
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display)]
+#[display(fmt = "{}", name)]
 pub struct NetworkConnection {
     pub name: ConnectionName,
 }
@@ -169,7 +178,7 @@ impl From<conductor_config::Global> for Global {
                 .as_ref()
                 .and_then(SystemName::new)
                 .unwrap_or_default(),
-            environment_variables: value.environment_variables,
+            environment_variables: value.environment_variables.into(),
         }
     }
 }
@@ -204,8 +213,8 @@ impl TryFrom<(conductor_config::Machine, &BTreeSet<Connection>)> for Machine {
             base: BaseMachine {
                 name,
                 bin,
-                environment_variables: value.environment_variables,
-                assets: value.assets,
+                environment_variables: value.environment_variables.into(),
+                assets: value.assets.into(),
                 connectors,
             },
             provider: provider.into(),
@@ -347,8 +356,8 @@ impl Config {
                     .into());
                 }
 
-                let assets = m.base.assets.clone();
-                m.base.assets.clear();
+                let assets = m.base.assets.0.clone();
+                m.base.assets.0.clear();
                 for (mut host_asset, guest_asset) in assets.into_iter() {
                     if host_asset.is_relative() {
                         host_asset = cfg_dir.join(host_asset);
@@ -358,7 +367,7 @@ impl Config {
                             ConfigError::NonExistentMachineAsset(host_asset, m.base.name).into(),
                         );
                     }
-                    m.base.assets.insert(host_asset, guest_asset);
+                    m.base.assets.0.insert(host_asset, guest_asset);
                 }
             }
             machines.push(m);
