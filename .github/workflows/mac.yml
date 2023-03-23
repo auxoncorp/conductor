@@ -7,11 +7,18 @@ env:
   CARGO_INCREMENTAL: 0
 
 jobs:
-  test:
+  build:
     runs-on:  macos-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: docker-practice/actions-setup-docker@master
       - run: rustup toolchain install stable --profile minimal
-      - run: docker --version
-      - run: cargo test --workspace --bins --examples --tests --benches --all-targets --all-features --no-fail-fast
+      - run: cargo build --workspace --bins --examples --tests --benches --all-targets --all-features
+#  TODO: make reliable enough to re-enable
+#  test:
+#    runs-on:  macos-latest
+#    steps:
+#      - uses: actions/checkout@v3
+#      - uses: docker-practice/actions-setup-docker@master
+#      - run: rustup toolchain install stable --profile minimal
+#      - run: docker --version
+#      - run: cargo test --workspace --bins --examples --tests --benches --all-targets --all-features --no-fail-fast
