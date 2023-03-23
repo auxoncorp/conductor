@@ -37,7 +37,7 @@ mod tests {
     #[test]
     fn get_system_from_config_path() -> Result<()> {
         System::try_from_config_path(
-            "../test_resources/systems/single-docker-machine/conductor.toml",
+            "../test_resources/systems/single-container-machine/conductor.toml",
         )?;
 
         Ok(())

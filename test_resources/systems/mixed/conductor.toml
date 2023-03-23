@@ -23,7 +23,7 @@ bin = 'path/to/foo-firmware'
     M0_VAR = 'M0_VAL'
     M1_VAR = 'M1_VAL'
 
-    [machine.provider.docker]
+    [machine.provider.container]
     foo = "bar"
 
     [[machine.connector]]

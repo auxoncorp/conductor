@@ -11,11 +11,11 @@ use std::default::Default;
 use std::path::PathBuf;
 use tracing::{error, trace};
 
-pub async fn run_in_docker(image: impl AsRef<str>, command: Vec<&str>) -> Result<()> {
-    let docker =
+pub async fn run_in_container(image: impl AsRef<str>, command: Vec<&str>) -> Result<()> {
+    let client =
         Docker::connect_with_local_defaults().context("connect to container system service")?;
 
-    let image_response = docker
+    let image_response = client
         .create_image(
             Some(CreateImageOptions {
                 from_image: image.as_ref(),
@@ -35,19 +35,19 @@ pub async fn run_in_docker(image: impl AsRef<str>, command: Vec<&str>) -> Result
         tty: Some(true),
         ..Default::default()
     };
-    let container = docker
+    let container = client
         .create_container::<&str, &str>(None, container_config)
         .await?;
 
     trace!(?container, "created container");
 
-    docker
+    client
         .start_container::<String>(&container.id, None)
         .await?;
 
     trace!("started container");
 
-    let exec = docker
+    let exec = client
         .create_exec(
             &container.id,
             CreateExecOptions {
@@ -64,7 +64,7 @@ pub async fn run_in_docker(image: impl AsRef<str>, command: Vec<&str>) -> Result
     if let StartExecResults::Attached {
         mut output,
         input: _,
-    } = docker.start_exec(&exec.id, None).await?
+    } = client.start_exec(&exec.id, None).await?
     {
         trace!("container exec started");
         while let Some(Ok(msg)) = output.next().await {
@@ -75,7 +75,7 @@ pub async fn run_in_docker(image: impl AsRef<str>, command: Vec<&str>) -> Result
         panic!();
     }
 
-    docker
+    client
         .remove_container(
             &container.id,
             Some(RemoveContainerOptions {
@@ -88,8 +88,8 @@ pub async fn run_in_docker(image: impl AsRef<str>, command: Vec<&str>) -> Result
     Ok(())
 }
 
-pub async fn build_image_from_dockerfile(name: &str) -> Result<()> {
-    let docker =
+pub async fn build_image_from_containerfile(name: &str) -> Result<()> {
+    let client =
         Docker::connect_with_local_defaults().context("connect to container system service")?;
 
     let image_context_dir = {
@@ -117,7 +117,7 @@ pub async fn build_image_from_dockerfile(name: &str) -> Result<()> {
     .context("spawn blocking tokio task to build tarball")??;
 
     let image_options = BuildImageOptions {
-        dockerfile: "Dockerfile",
+        dockerfile: "Containerfile",
         t: &format!("conductor/{}", name),
         labels: [
             ("io.auxon.conductor", ""),
@@ -129,7 +129,7 @@ pub async fn build_image_from_dockerfile(name: &str) -> Result<()> {
     };
 
     let mut build_image_progress =
-        docker.build_image(image_options, None, Some(tarball_bytes.into()));
+        client.build_image(image_options, None, Some(tarball_bytes.into()));
 
     // receive progress reports on image being built
     while let Some(progress) = build_image_progress.next().await {
@@ -158,19 +158,19 @@ mod tests {
         const IMAGE: &str = "debian";
         const TAG: &str = "bullseye";
 
-        let docker = Docker::connect_with_local_defaults()?;
+        let client = Docker::connect_with_local_defaults()?;
 
-        let images = docker.list_images::<&str>(None).await?;
+        let images = client.list_images::<&str>(None).await?;
         trace!("local images: {images:#?}");
 
-        let image = docker.inspect_image("ubuntu1").await;
+        let image = client.inspect_image("ubuntu1").await;
         trace!("ubuntu image: {image:#?}");
 
         let search_options = SearchImagesOptions {
             term: "docker.io/rust",
             ..Default::default()
         };
-        let searched_images = docker.search_images(search_options).await;
+        let searched_images = client.search_images(search_options).await;
         trace!("searched images: {searched_images:#?}");
 
         Ok(())
@@ -181,7 +181,7 @@ mod tests {
     async fn hello_world() -> Result<()> {
         const IMAGE: &str = "docker.io/ubuntu:latest";
 
-        run_in_docker(IMAGE, vec!["uname", "-a"]).await
+        run_in_container(IMAGE, vec!["uname", "-a"]).await
     }
 
     #[tokio::test]
@@ -189,6 +189,6 @@ mod tests {
     async fn build_image() -> Result<()> {
         const IMAGE: &str = "renode";
 
-        build_image_from_dockerfile(IMAGE).await
+        build_image_from_containerfile(IMAGE).await
     }
 }

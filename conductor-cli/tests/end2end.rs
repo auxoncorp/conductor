@@ -30,7 +30,7 @@ fn system_check_finds_right_config() {
     let mut cmd = conductor_command();
 
     cmd.args(["system", "check"]);
-    cmd.current_dir("../test_resources/systems/single-docker-machine/");
+    cmd.current_dir("../test_resources/systems/single-container-machine/");
 
     cmd.assert()
         .success()

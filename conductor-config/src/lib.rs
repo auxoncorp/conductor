@@ -10,13 +10,13 @@ pub use connector_properties::{
     ConnectorPropertiesError, GpioConnectorProperties, NetworkConnectorProperties,
     UartConnectorProperties,
 };
-pub use docker::DockerMachineProvider;
+pub use container::ContainerMachineProvider;
 pub use gazebo::GazeboWorldProvider;
 pub use qemu::{QemuMachineProtocolConfig, QemuMachineProvider};
 pub use renode::{RenodeCliConfig, RenodeMachineProvider, RenodeScriptConfig};
 
 mod connector_properties;
-mod docker;
+mod container;
 mod gazebo;
 mod qemu;
 mod renode;
@@ -130,7 +130,7 @@ pub struct Machine {
 pub enum MachineProvider {
     Renode(RenodeMachineProvider),
     Qemu(QemuMachineProvider),
-    Docker(DockerMachineProvider),
+    Container(ContainerMachineProvider),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -230,7 +230,7 @@ mod tests {
             M0_VAR = 'M0_VAL'
             M1_VAR = 'M1_VAL'
 
-            [machine.provider.docker]
+            [machine.provider.container]
             foo = "bar"
 
             [[machine.connector]]

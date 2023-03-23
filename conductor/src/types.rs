@@ -16,7 +16,7 @@ stringy_newtype!(InterfaceName);
 
 // TODO(jon@auxon.io) just a place holder/example
 // we still need a canonical repr and type
-// possibly runtime (docker, etc) defined
+// possibly runtime (container, etc) defined
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, AsRef, Deref, Display, Into)]
 pub struct MachineRuntimeId(String);
 
