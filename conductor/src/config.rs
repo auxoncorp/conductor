@@ -1,6 +1,6 @@
 use crate::types::{ConnectionName, InterfaceName, MachineName, SystemName};
 use conductor_config::{
-    ConnectorPropertiesError, GpioConnectorProperties, MachineBackend, NetworkConnectorProperties,
+    ConnectorPropertiesError, GpioConnectorProperties, MachineProvider, NetworkConnectorProperties,
     UartConnectorProperties,
 };
 use derive_more::From;
@@ -25,10 +25,14 @@ pub enum ConfigError {
     MissingConnectorConnection(ConnectionName),
     #[error("A machine must have a name")]
     EmptyMachineName,
+    #[error("The host binary '{_0:?}' for machine '{_1}' does not exist")]
+    NonExistentMachineBin(PathBuf, MachineName),
     #[error("The host asset '{_0:?}' for machine '{_1}' does not exist")]
     NonExistentMachineAsset(PathBuf, MachineName),
-    #[error("Machine '{_0}' does not have a backend specified")]
-    NoMachineBackend(MachineName),
+    #[error("Machine '{_0}' does not have a provider specified")]
+    NoMachineProvider(MachineName),
+    #[error("Machine '{_0}' does not have a bin path specified")]
+    NoMachineBin(MachineName),
     #[error("Found duplicate machines with name '{_0}'")]
     DupMachine(MachineName),
     #[error(transparent)]
@@ -47,7 +51,7 @@ pub enum ConfigReadError {
 pub struct Config {
     pub global: Global,
     // TODO
-    //pub simulators: Vec<Simulator>,
+    //pub worlds: Vec<World>,
     pub machines: BTreeSet<Machine>,
     pub connections: BTreeSet<Connection>,
     // TODO
@@ -61,16 +65,17 @@ pub struct Global {
 }
 
 // TODO
-// pub struct Simulator {
-// pub enum SimulatorBackend {
-// pub struct GazeboSimulatorBackend {
+// pub struct World {
+// pub enum WorldProvider {
+// pub struct GazeboWorldProvider {
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct Machine {
     pub name: MachineName,
+    pub bin: PathBuf,
     pub environment_variables: BTreeMap<String, String>,
     pub assets: BTreeMap<PathBuf, PathBuf>,
-    pub backend: MachineBackend,
+    pub provider: MachineProvider,
     pub connectors: BTreeSet<MachineConnector>,
 }
 
@@ -166,6 +171,12 @@ impl TryFrom<(conductor_config::Machine, &BTreeSet<Connection>)> for Machine {
             .as_ref()
             .and_then(MachineName::new)
             .ok_or(ConfigError::EmptyMachineName)?;
+        let bin = value
+            .bin
+            .ok_or_else(|| ConfigError::NoMachineBin(name.clone()))?;
+        if !bin.exists() {
+            return Err(ConfigError::NonExistentMachineBin(bin, name));
+        }
         for host_asset in value.assets.keys() {
             if !host_asset.exists() {
                 return Err(ConfigError::NonExistentMachineAsset(
@@ -174,9 +185,9 @@ impl TryFrom<(conductor_config::Machine, &BTreeSet<Connection>)> for Machine {
                 ));
             }
         }
-        let backend = value
-            .backend
-            .ok_or_else(|| ConfigError::NoMachineBackend(name.clone()))?;
+        let provider = value
+            .provider
+            .ok_or_else(|| ConfigError::NoMachineProvider(name.clone()))?;
         let mut connectors = BTreeSet::new();
         for c in value.connectors.into_iter() {
             let c = MachineConnector::try_from((c, connections))?;
@@ -186,9 +197,10 @@ impl TryFrom<(conductor_config::Machine, &BTreeSet<Connection>)> for Machine {
         }
         Ok(Self {
             name,
+            bin,
             environment_variables: value.environment_variables,
             assets: value.assets,
-            backend,
+            provider,
             connectors,
         })
     }
@@ -271,7 +283,7 @@ impl Config {
         // TODO(jon@auxon.io)
         // basic top-level validation
         // names exist
-        // backends are provided
+        // providers are provided
         // resolve and check connectors to their connections
         // ...
 

@@ -4,9 +4,9 @@ name = 'my system'
 SOME_VAR = 'SOME_VAL'
 SOME_VAR2 = 'SOME_VAL2'
 
-[[simulator]]
+[[world]]
 name = 'a world'
-    [simulator.backend.gazebo]
+    [world.provider.gazebo]
     world-path = 'path/to/my.sdf'
     config-path = 'path/to/gz.conf'
     plugins-path = 'path/to/plugins'
@@ -23,7 +23,7 @@ bin = 'path/to/foo-firmware'
     M0_VAR = 'M0_VAL'
     M1_VAR = 'M1_VAL'
 
-    [machine.backend.docker]
+    [machine.provider.docker]
     foo = "bar"
 
     [[machine.connector]]
@@ -42,12 +42,12 @@ bin = 'path/to/bar-firmware.bin'
     [machine.environment-variables]
     M0_VAR = 'M0_VAL_BAR'
 
-    [machine.backend.qemu]
+    [machine.provider.qemu]
     machine = 'mps2-an385'
     cpu = 'cortex-m3'
     memory = '16M'
     no-graphic = true
-        [machine.backend.qemu.qmp]
+        [machine.provider.qemu.qmp]
         port = 4444
         wait = false
         server = true
@@ -66,7 +66,7 @@ bin = 'path/to/bar-firmware.bin'
 [[machine]]
 name = "biz"
 bin = 'path/to/biz-firmware.elf'
-    [machine.backend.renode]
+    [machine.provider.renode]
     disable-xwt = true
     console = true
     platform-descriptions = [

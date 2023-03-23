@@ -10,7 +10,7 @@ bin = 'path/to/m0-firmware.elf'
     [machine.environment-variables]
     THIS_MACHINE = '0'
 
-    [machine.backend.renode]
+    [machine.provider.renode]
     disable-xwt = true
     hide-monitor = true
     console = true
@@ -44,7 +44,7 @@ bin = 'path/to/m1-firmware.elf'
     SOME_VAR3 = 'SOME_VAL3'
     THIS_MACHINE = '1'
 
-    [machine.backend.renode]
+    [machine.provider.renode]
     disable-xwt = true
     hide-monitor = true
     console = true

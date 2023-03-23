@@ -10,10 +10,10 @@ pub use connector_properties::{
     ConnectorPropertiesError, GpioConnectorProperties, NetworkConnectorProperties,
     UartConnectorProperties,
 };
-pub use docker::DockerMachineBackend;
-pub use gazebo::GazeboSimulatorBackend;
-pub use qemu::{QemuMachineBackend, QemuMachineProtocolConfig};
-pub use renode::{RenodeCliConfig, RenodeMachineBackend, RenodeScriptConfig};
+pub use docker::DockerMachineProvider;
+pub use gazebo::GazeboWorldProvider;
+pub use qemu::{QemuMachineProtocolConfig, QemuMachineProvider};
+pub use renode::{RenodeCliConfig, RenodeMachineProvider, RenodeScriptConfig};
 
 mod connector_properties;
 mod docker;
@@ -43,8 +43,8 @@ pub struct Config {
     #[serde(flatten)]
     pub global: Global,
 
-    #[serde(alias = "simulator", skip_serializing_if = "Vec::is_empty")]
-    pub simulators: Vec<Simulator>,
+    #[serde(alias = "world", skip_serializing_if = "Vec::is_empty")]
+    pub worlds: Vec<World>,
 
     #[serde(alias = "machine", skip_serializing_if = "Vec::is_empty")]
     pub machines: Vec<Machine>,
@@ -67,7 +67,7 @@ pub struct Global {
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
-pub struct Simulator {
+pub struct World {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -75,13 +75,13 @@ pub struct Simulator {
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub assets: BTreeMap<PathBuf, PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub backend: Option<SimulatorBackend>,
+    pub provider: Option<WorldProvider>,
 }
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum SimulatorBackend {
-    Gazebo(GazeboSimulatorBackend),
+pub enum WorldProvider {
+    Gazebo(GazeboWorldProvider),
 }
 
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
@@ -89,22 +89,24 @@ pub enum SimulatorBackend {
 pub struct Machine {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bin: Option<PathBuf>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub environment_variables: BTreeMap<String, String>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub assets: BTreeMap<PathBuf, PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub backend: Option<MachineBackend>,
+    pub provider: Option<MachineProvider>,
     #[serde(alias = "connector", skip_serializing_if = "Vec::is_empty")]
     pub connectors: Vec<MachineConnector>,
 }
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum MachineBackend {
-    Renode(RenodeMachineBackend),
-    Qemu(QemuMachineBackend),
-    Docker(DockerMachineBackend),
+pub enum MachineProvider {
+    Renode(RenodeMachineProvider),
+    Qemu(QemuMachineProvider),
+    Docker(DockerMachineProvider),
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -185,9 +187,9 @@ mod tests {
         SOME_VAR = 'SOME_VAL'
         SOME_VAR2 = 'SOME_VAL2'
 
-        [[simulator]]
+        [[world]]
         name = 'a world'
-            [simulator.backend.gazebo]
+            [world.provider.gazebo]
             world-path = 'path/to/my.sdf'
             config-path = 'path/to/gz.conf'
             plugins-path = 'path/to/plugins'
@@ -204,7 +206,7 @@ mod tests {
             M0_VAR = 'M0_VAL'
             M1_VAR = 'M1_VAL'
 
-            [machine.backend.docker]
+            [machine.provider.docker]
             foo = "bar"
 
             [[machine.connector]]
@@ -223,12 +225,12 @@ mod tests {
             [machine.environment-variables]
             M0_VAR = 'M0_VAL_BAR'
 
-            [machine.backend.qemu]
+            [machine.provider.qemu]
             machine = 'mps2-an385'
             cpu = 'cortex-m3'
             memory = '16M'
             no-graphic = true
-            [machine.backend.qemu.qmp]
+            [machine.provider.qemu.qmp]
             port = 4444
             wait = false
             server = true
@@ -247,7 +249,7 @@ mod tests {
         [[machine]]
         name = "biz"
         bin = 'path/to/biz-firmware.elf'
-            [machine.backend.renode]
+            [machine.provider.renode]
             disable-xwt = true
             console = true
             platform-descriptions = [
@@ -313,7 +315,7 @@ mod tests {
         let cfg = Config::read(&cfg_path).unwrap();
 
         assert_eq!(cfg.global.environment_variables.len(), 2);
-        assert_eq!(cfg.simulators.len(), 1);
+        assert_eq!(cfg.worlds.len(), 1);
         assert_eq!(cfg.machines.len(), 3);
     }
 }
