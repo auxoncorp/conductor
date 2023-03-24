@@ -3,7 +3,7 @@ use crate::types::{
     InterfaceName, MachineName, ProviderKind, SystemName,
 };
 use conductor_config::{
-    ConnectorPropertiesError, DockerMachineProvider, GpioConnectorProperties,
+    ConnectorPropertiesError, ContainerMachineProvider, GpioConnectorProperties,
     NetworkConnectorProperties, QemuMachineProvider, RenodeMachineProvider,
     UartConnectorProperties,
 };
@@ -93,7 +93,7 @@ pub struct BaseMachine {
 pub enum MachineProvider {
     Renode(RenodeMachineProvider),
     Qemu(QemuMachineProvider),
-    Docker(DockerMachineProvider),
+    Container(ContainerMachineProvider),
 }
 
 impl MachineProvider {
@@ -102,7 +102,7 @@ impl MachineProvider {
         match self {
             Renode(_) => ProviderKind::Renode,
             Qemu(_) => ProviderKind::Qemu,
-            Docker(_) => ProviderKind::Docker,
+            Container(_) => ProviderKind::Docker,
         }
     }
 }
@@ -257,7 +257,7 @@ impl From<conductor_config::MachineProvider> for MachineProvider {
         match value {
             conductor_config::MachineProvider::Renode(p) => MachineProvider::Renode(p),
             conductor_config::MachineProvider::Qemu(p) => MachineProvider::Qemu(p),
-            conductor_config::MachineProvider::Docker(p) => MachineProvider::Docker(p),
+            conductor_config::MachineProvider::Container(p) => MachineProvider::Container(p),
         }
     }
 }
