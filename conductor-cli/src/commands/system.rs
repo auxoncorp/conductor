@@ -6,9 +6,8 @@ use crate::opts;
 use conductor::*;
 
 // TODO
+use conductor::component::WorldOrMachineComponent;
 use conductor::component_graph::ComponentGraph;
-use conductor::config::MachineProvider;
-use conductor::provider::renode::RenodeMachine;
 
 pub fn handle(s: &opts::System) -> Result<()> {
     // TODO
@@ -25,20 +24,17 @@ pub fn handle(s: &opts::System) -> Result<()> {
             let cfg = config::Config::read(&config_path)?;
             println!("{cfg:#?}");
 
-            let renode_machines: Vec<RenodeMachine> = cfg
-                .machines
+            let components: Vec<WorldOrMachineComponent> = cfg
+                .worlds
                 .into_iter()
-                .map(|m| match m.provider {
-                    MachineProvider::Renode(p) => RenodeMachine {
-                        base: m.base,
-                        provider: p,
-                    },
-                    _ => todo!(),
-                })
+                .map(WorldOrMachineComponent::from)
+                .chain(cfg.machines.into_iter().map(WorldOrMachineComponent::from))
                 .collect();
 
             // TODO - add subcmd for 'system export topo or graph or w/e'
-            let graph = ComponentGraph::new(renode_machines, cfg.connections);
+            // dot -Tx11 -Kcirco /tmp/system.dot
+            // circo layout is usually better
+            let graph = ComponentGraph::new(components, cfg.connections);
             let mut f = std::fs::File::create("/tmp/system.dot").unwrap();
             graph.write_dot(&mut f).unwrap();
 

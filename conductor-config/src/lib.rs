@@ -100,12 +100,20 @@ pub struct World {
     pub assets: BTreeMap<PathBuf, PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider: Option<WorldProvider>,
+    #[serde(alias = "connector", skip_serializing_if = "Vec::is_empty")]
+    pub connectors: Vec<WorldConnector>,
 }
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum WorldProvider {
     Gazebo(GazeboWorldProvider),
+}
+
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct WorldConnector {
+    pub name: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Default, Serialize, Deserialize)]
@@ -219,6 +227,9 @@ mod tests {
             plugins-path = 'path/to/plugins'
             headless = false
             partition = 'my-sim-partition'
+
+            [[world.connector]]
+            name = "foobiz"
 
         [[machine]]
         name = "foo"

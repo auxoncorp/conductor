@@ -39,7 +39,7 @@ pub enum ProviderKind {
     #[display(fmt = "{}", "self.as_str()")]
     Qemu,
     #[display(fmt = "{}", "self.as_str()")]
-    Docker,
+    Container,
 }
 
 impl ProviderKind {
@@ -49,7 +49,7 @@ impl ProviderKind {
             Gazebo => "gazebo",
             Renode => "renode",
             Qemu => "qemu",
-            Docker => "docker",
+            Container => "container",
         }
     }
 }
@@ -77,6 +77,17 @@ impl ConnectionKind {
         }
     }
 
+    /// This connection kind requires all connectors to be hosted within
+    /// the same container
+    pub fn is_restricted_to_common_conatainer(&self) -> bool {
+        use ConnectionKind::*;
+        match self {
+            Uart => false,
+            Gpio => true,
+            Network => false,
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         use ConnectionKind::*;
         match self {
@@ -92,6 +103,12 @@ pub struct EnvironmentVariableKeyValuePairs(pub(crate) BTreeMap<String, String>)
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default, AsRef, Deref, From, Into)]
 pub struct HostToGuestAssetPaths(pub(crate) BTreeMap<PathBuf, PathBuf>);
+
+impl From<WorldName> for ComponentName {
+    fn from(value: WorldName) -> Self {
+        ComponentName(value.0)
+    }
+}
 
 impl From<MachineName> for ComponentName {
     fn from(value: MachineName) -> Self {

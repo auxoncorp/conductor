@@ -208,12 +208,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "colorous"
+version = "1.0.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "39efe0bc2ad58cbee0bea3109d15b5390fef75e810f28608a6e48ff3e3fbe24b"
+
+[[package]]
 name = "conductor"
 version = "0.1.0-dev"
 dependencies = [
  "anyhow",
  "assert_cmd",
  "bollard",
+ "colorous",
  "conductor-config",
  "derive_more",
  "futures-util",
