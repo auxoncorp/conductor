@@ -14,15 +14,22 @@ pub struct RenodeMachineProvider {
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct RenodeCliConfig {
-    pub plain: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plain: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub port: Option<u16>,
-    pub disable_xwt: bool,
-    pub hide_monitor: bool,
-    pub hide_log: bool,
-    pub hide_analyzers: bool,
-    pub console: bool,
-    pub keep_temporary_files: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub disable_xwt: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hide_monitor: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hide_log: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hide_analyzers: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub console: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub keep_temporary_files: Option<bool>,
 }
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default, Serialize, Deserialize)]

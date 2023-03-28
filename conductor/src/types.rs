@@ -1,5 +1,6 @@
 use crate::stringy_newtype;
-use derive_more::{AsRef, Deref, Display, Into};
+use derive_more::{AsRef, Deref, Display, From, Into};
+use std::{collections::BTreeMap, path::PathBuf};
 
 stringy_newtype!(SystemName);
 
@@ -9,6 +10,7 @@ impl Default for SystemName {
     }
 }
 
+stringy_newtype!(ComponentName);
 stringy_newtype!(WorldName);
 stringy_newtype!(MachineName);
 stringy_newtype!(ConnectionName);
@@ -23,6 +25,77 @@ pub struct MachineRuntimeId(String);
 impl MachineRuntimeId {
     pub fn new(system: &SystemName, machine: &MachineName) -> Self {
         Self(format!("{system}::{machine}"))
+    }
+}
+
+// TODO - clearly the display usage here isn't as it was intended, fixme
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display)]
+#[display(fmt = "{}")]
+pub enum ProviderKind {
+    #[display(fmt = "{}", "self.as_str()")]
+    Gazebo,
+    #[display(fmt = "{}", "self.as_str()")]
+    Renode,
+    #[display(fmt = "{}", "self.as_str()")]
+    Qemu,
+    #[display(fmt = "{}", "self.as_str()")]
+    Docker,
+}
+
+impl ProviderKind {
+    pub fn as_str(self) -> &'static str {
+        use ProviderKind::*;
+        match self {
+            Gazebo => "gazebo",
+            Renode => "renode",
+            Qemu => "qemu",
+            Docker => "docker",
+        }
+    }
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display)]
+#[display(fmt = "{}")]
+pub enum ConnectionKind {
+    #[display(fmt = "{}", "self.as_str()")]
+    Uart,
+    #[display(fmt = "{}", "self.as_str()")]
+    Gpio,
+    #[display(fmt = "{}", "self.as_str()")]
+    Network,
+}
+
+impl ConnectionKind {
+    /// Any connector to this connection can be either the
+    /// initiator or the recipient of a transfer
+    pub fn is_symmetrical(self) -> bool {
+        use ConnectionKind::*;
+        match self {
+            Uart => true,
+            Gpio => false,
+            Network => true,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        use ConnectionKind::*;
+        match self {
+            Uart => "uart",
+            Gpio => "gpio",
+            Network => "network",
+        }
+    }
+}
+
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default, AsRef, Deref, From, Into)]
+pub struct EnvironmentVariableKeyValuePairs(pub(crate) BTreeMap<String, String>);
+
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default, AsRef, Deref, From, Into)]
+pub struct HostToGuestAssetPaths(pub(crate) BTreeMap<PathBuf, PathBuf>);
+
+impl From<MachineName> for ComponentName {
+    fn from(value: MachineName) -> Self {
+        ComponentName(value.0)
     }
 }
 
