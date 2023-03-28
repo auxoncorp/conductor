@@ -11,14 +11,6 @@ pub fn parse_args() -> Args {
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about, disable_help_subcommand(true))]
 pub struct Args {
-    /// Make logging more verbose
-    #[arg(long, short, action = clap::ArgAction::Count)]
-    pub verbose: u8,
-
-    /// Make logging less verbose
-    #[arg(long, short, action = clap::ArgAction::Count)]
-    pub quiet: u8,
-
     #[command(subcommand)]
     pub command: Command,
 }
@@ -37,13 +29,15 @@ pub enum System {
     Create(Create),
     Start(Start),
     Stop(Stop),
+    #[command(subcommand)]
+    Export(Export),
 }
 
 /// Check a system
 #[derive(Parser, Debug)]
 pub struct Check {
-    /// Path to config file.
-    pub config: Option<PathBuf>,
+    #[command(flatten)]
+    pub common: CommonSystemOptions,
 }
 
 /// Create a new system
@@ -57,6 +51,27 @@ pub struct Start {}
 /// Tear down a system
 #[derive(Parser, Debug)]
 pub struct Stop {}
+
+/// Export a system
+#[derive(Parser, Debug)]
+pub enum Export {
+    /// Export the system as a dot graph to stdout
+    Graph {
+        #[command(flatten)]
+        common: CommonSystemOptions,
+
+        /// Include color attributes for the nodes based on
+        /// which container they belong to
+        /// and the edges based on which connection they refer to.
+        #[arg(long)]
+        color: bool,
+
+        /// Include direction attributes for the connections that
+        /// are asymmetrical.
+        #[arg(long)]
+        directed: bool,
+    },
+}
 
 #[derive(Parser, Debug)]
 pub enum Machine {
@@ -76,3 +91,21 @@ pub struct Inspect {}
 /// Dump a machine configuration
 #[derive(Parser, Debug)]
 pub struct Dump {}
+
+#[derive(Parser, Debug)]
+pub struct CommonSystemOptions {
+    /// Path to config file.
+    #[arg(long)]
+    pub config: Option<PathBuf>,
+}
+
+impl CommonSystemOptions {
+    pub(crate) fn resolve_system(&self) -> anyhow::Result<conductor::System> {
+        let sys = self
+            .config
+            .as_ref()
+            .map(conductor::System::try_from_config_path)
+            .unwrap_or_else(conductor::System::try_from_working_directory)?;
+        Ok(sys)
+    }
+}

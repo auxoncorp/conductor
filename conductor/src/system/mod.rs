@@ -1,4 +1,4 @@
-use crate::Config;
+use crate::{Config, WorldOrMachineComponent};
 use anyhow::Result;
 use std::path::Path;
 
@@ -12,21 +12,34 @@ impl System {
     }
 
     pub fn try_from_config_path<P: AsRef<Path>>(path: P) -> Result<Self> {
-        println!("{}", path.as_ref().display());
         let config = Config::read(path)?;
-
-        Ok(System { config })
+        Ok(Self::from_config(config))
     }
 
     pub fn try_from_working_directory() -> Result<Self> {
         let config_path = conductor_config::find_config_file()?;
         let config = Config::read(config_path)?;
-
-        Ok(System { config })
+        Ok(Self::from_config(config))
     }
 
-    pub fn get_config(&self) -> &Config {
+    pub fn config(&self) -> &Config {
         &self.config
+    }
+
+    pub fn components(&self) -> Vec<WorldOrMachineComponent> {
+        self.config
+            .worlds
+            .iter()
+            .cloned()
+            .map(WorldOrMachineComponent::from)
+            .chain(
+                self.config
+                    .machines
+                    .iter()
+                    .cloned()
+                    .map(WorldOrMachineComponent::from),
+            )
+            .collect()
     }
 }
 

@@ -15,6 +15,16 @@ use std::{
     fmt, io,
 };
 
+const DEFAULT_COLOR: Color = Color {
+    r: 0xFF,
+    g: 0xFF,
+    b: 0xFF,
+};
+
+#[derive(Debug, thiserror::Error)]
+#[error("A config inconsistency error was encountered during component graph construction")]
+pub struct InconsistencyError;
+
 // TODO
 // synthesize host node when involved
 pub struct ComponentGraph<N> {
@@ -34,7 +44,7 @@ pub struct ComponentGraph<N> {
 type InnerGraph<N> = UnGraph<N, Connection>;
 
 impl<N: Component + fmt::Display + Clone> ComponentGraph<N> {
-    pub fn new<C, E>(components: C, connections: E) -> Self
+    pub fn new<C, E>(components: C, connections: E) -> Result<Self, InconsistencyError>
     where
         C: IntoIterator<Item = N>,
         E: IntoIterator<Item = Connection>,
@@ -73,9 +83,13 @@ impl<N: Component + fmt::Display + Clone> ComponentGraph<N> {
             // TODO - host-bridge will be a thing soon
             if comp_names.len() > 1 {
                 for comp_pair in comp_names.iter().permutations(2) {
-                    let a = component_to_node_idx.get(comp_pair[0]).unwrap();
-                    let b = component_to_node_idx.get(comp_pair[1]).unwrap();
-                    let e = connections.get(conn_name).unwrap();
+                    let a = component_to_node_idx
+                        .get(comp_pair[0])
+                        .ok_or(InconsistencyError)?;
+                    let b = component_to_node_idx
+                        .get(comp_pair[1])
+                        .ok_or(InconsistencyError)?;
+                    let e = connections.get(conn_name).ok_or(InconsistencyError)?;
                     g.update_edge(*a, *b, e.clone());
                 }
             }
@@ -86,7 +100,10 @@ impl<N: Component + fmt::Display + Clone> ComponentGraph<N> {
         // just immediate neighboring components
         let mut containers_with_dups = BTreeSet::new();
         for node_idx in g.node_indices() {
-            let comp_name = g.node_weight(node_idx).map(|c| c.name()).unwrap();
+            let comp_name = g
+                .node_weight(node_idx)
+                .map(|c| c.name())
+                .ok_or(InconsistencyError)?;
 
             // Always start with 1-to-1 container-to-component relationship
             let mut container = Container::from(comp_name);
@@ -96,7 +113,10 @@ impl<N: Component + fmt::Display + Clone> ComponentGraph<N> {
                 let connection = edge.weight();
 
                 if connection.kind().is_restricted_to_common_conatainer() {
-                    let other_comp = g.node_weight(edge.target()).map(|c| c.name()).unwrap();
+                    let other_comp = g
+                        .node_weight(edge.target())
+                        .map(|c| c.name())
+                        .ok_or(InconsistencyError)?;
                     container.0.insert(other_comp);
                 }
             }
@@ -114,13 +134,13 @@ impl<N: Component + fmt::Display + Clone> ComponentGraph<N> {
             components_by_container.insert(cont.0);
         }
 
-        Self {
+        Ok(Self {
             connections,
             components,
             connections_to_components,
             components_by_container,
             g,
-        }
+        })
     }
 
     pub fn connections(&self) -> &BTreeMap<ConnectionName, Connection> {
@@ -139,7 +159,12 @@ impl<N: Component + fmt::Display + Clone> ComponentGraph<N> {
         &self.components_by_container
     }
 
-    pub fn write_dot<W: io::Write>(&self, out: &mut W) -> io::Result<()> {
+    pub fn write_dot<W: io::Write>(
+        &self,
+        color: bool,
+        directed: bool,
+        out: &mut W,
+    ) -> io::Result<()> {
         let connection_colors: BTreeMap<ConnectionName, Color> = self
             .connections_to_components
             .keys()
@@ -161,19 +186,30 @@ impl<N: Component + fmt::Display + Clone> ComponentGraph<N> {
             .collect();
 
         let get_node_attributes = |_g: &InnerGraph<N>, node_ref: (NodeIndex, &N)| {
-            let name = node_ref.1.name();
-            let node_color = component_colors.get(&name).unwrap();
-            format!("penwidth = 2.0 color=\"#{node_color:X}\"")
+            if color {
+                let name = node_ref.1.name();
+                let node_color = component_colors.get(&name).unwrap_or(&DEFAULT_COLOR);
+                format!("penwidth = 2.0 color=\"#{node_color:X}\"")
+            } else {
+                String::new()
+            }
         };
 
         let get_edge_attributes = |g: &InnerGraph<N>, edge_ref: EdgeReference<'_, Connection>| {
+            if !color {
+                return String::new();
+            }
+
             let connection = edge_ref.weight();
-            let edge_color = connection_colors.get(connection.name()).unwrap();
-            let dir = if connection.kind().is_symmetrical() {
+            let edge_color = connection_colors
+                .get(connection.name())
+                .unwrap_or(&DEFAULT_COLOR);
+            let dir = if !directed {
+                "none"
+            } else if connection.kind().is_symmetrical() {
                 "both"
             } else {
                 let src_comp = &g[edge_ref.source()];
-
                 let dir = src_comp
                     .connectors()
                     .iter()
