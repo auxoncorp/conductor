@@ -1,0 +1,9 @@
+name = "single container http test server"
+
+[[machine]]
+name = "http test server"
+bin = "conductor.toml" # TODO: make me optional
+[machine.provider.container]
+image = "docker.io/kennethreitz/httpbin"
+ports = [ 80 ] # TODO # or [ "80:80" ] or [ [ 80, 80 ]
+volumes = [[ "conf", "/app/conf" ] , [ "data:/app/data" ]] # TODO (also not actually needed for this example)

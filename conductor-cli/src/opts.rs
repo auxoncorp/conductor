@@ -26,7 +26,7 @@ pub enum Command {
 #[derive(Parser, Debug)]
 pub enum System {
     Check(Check),
-    Create(Create),
+    Build(Build),
     Start(Start),
     Stop(Stop),
     #[command(subcommand)]
@@ -42,7 +42,10 @@ pub struct Check {
 
 /// Create a new system
 #[derive(Parser, Debug)]
-pub struct Create {}
+pub struct Build {
+    #[command(flatten)]
+    pub common: CommonSystemOptions,
+}
 
 /// Bring up a system
 #[derive(Parser, Debug)]
