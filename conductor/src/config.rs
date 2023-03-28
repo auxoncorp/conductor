@@ -1,14 +1,14 @@
+use crate::component::{Component, ComponentConnector};
 use crate::types::{
-    ConnectionKind, ConnectionName, EnvironmentVariableKeyValuePairs, HostToGuestAssetPaths,
-    InterfaceName, MachineName, ProviderKind, SystemName,
+    ComponentName, ConnectionKind, ConnectionName, EnvironmentVariableKeyValuePairs,
+    HostToGuestAssetPaths, InterfaceName, MachineName, ProviderKind, SystemName, WorldName,
 };
 use conductor_config::{
-    ConnectorPropertiesError, ContainerMachineProvider, GpioConnectorProperties,
-    NetworkConnectorProperties, QemuMachineProvider, RenodeMachineProvider,
-    UartConnectorProperties,
+    ConnectorPropertiesError, ContainerMachineProvider, GazeboWorldProvider,
+    GpioConnectorProperties, NetworkConnectorProperties, QemuMachineProvider,
+    RenodeMachineProvider, UartConnectorProperties,
 };
-use derive_more::Display;
-use derive_more::From;
+use derive_more::{Display, From};
 use std::{
     collections::BTreeSet,
     path::{Path, PathBuf},
@@ -25,21 +25,33 @@ pub enum ConfigError {
     #[error("A connector must have an interface")]
     EmptyConnectorInterface,
     #[error("Machine '{_0}' has a invalid duplicate connector '{_1}'")]
-    DupConnector(MachineName, ConnectionName),
+    DupMachineConnector(MachineName, ConnectionName),
+    #[error("World '{_0}' has a invalid duplicate connector '{_1}'")]
+    DupWorldConnector(WorldName, ConnectionName),
     #[error("A machine connector references a connection '{_0}' that isn't defined")]
-    MissingConnectorConnection(ConnectionName),
+    MissingMachineConnectorConnection(ConnectionName),
+    #[error("A world connector references a connection '{_0}' that isn't defined")]
+    MissingWorldConnectorConnection(ConnectionName),
     #[error("A machine must have a name")]
     EmptyMachineName,
+    #[error("A world must have a name")]
+    EmptyWorldName,
     #[error("The host binary '{_0:?}' for machine '{_1}' does not exist")]
     NonExistentMachineBin(PathBuf, MachineName),
     #[error("The host asset '{_0:?}' for machine '{_1}' does not exist")]
     NonExistentMachineAsset(PathBuf, MachineName),
+    #[error("The host asset '{_0:?}' for world '{_1}' does not exist")]
+    NonExistentWorldAsset(PathBuf, WorldName),
     #[error("Machine '{_0}' does not have a provider specified")]
     NoMachineProvider(MachineName),
+    #[error("World '{_0}' does not have a provider specified")]
+    NoWorldProvider(WorldName),
     #[error("Machine '{_0}' does not have a bin path specified")]
     NoMachineBin(MachineName),
     #[error("Found duplicate machines with name '{_0}'")]
     DupMachine(MachineName),
+    #[error("Found duplicate worlds with name '{_0}'")]
+    DupWorld(WorldName),
     #[error(transparent)]
     ConnectorProperties(#[from] ConnectorPropertiesError),
 }
@@ -55,8 +67,7 @@ pub enum ConfigReadError {
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct Config {
     pub global: Global,
-    // TODO
-    //pub worlds: Vec<World>,
+    pub worlds: Vec<World>,
     pub machines: Vec<Machine>,
     pub connections: BTreeSet<Connection>,
     // TODO
@@ -69,12 +80,42 @@ pub struct Global {
     pub environment_variables: EnvironmentVariableKeyValuePairs,
 }
 
-// TODO
-// pub struct World {
-// pub enum WorldProvider {
-// pub struct GazeboWorldProvider {
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display)]
+#[display(fmt = "[{}] {}", "self.provider()", "self.base.name")]
+pub struct World {
+    pub base: BaseWorld,
+    pub provider: WorldProvider,
+}
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub struct BaseWorld {
+    pub name: WorldName,
+    pub environment_variables: EnvironmentVariableKeyValuePairs,
+    pub assets: HostToGuestAssetPaths,
+    pub connectors: Vec<WorldConnector>,
+}
+
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, From)]
+pub enum WorldProvider {
+    Gazebo(GazeboWorldProvider),
+}
+
+impl WorldProvider {
+    pub fn kind(&self) -> ProviderKind {
+        use WorldProvider::*;
+        match self {
+            Gazebo(_) => ProviderKind::Gazebo,
+        }
+    }
+}
+
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub struct WorldConnector {
+    pub name: ConnectionName,
+}
+
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display)]
+#[display(fmt = "[{}] {}", "self.provider()", "self.base.name")]
 pub struct Machine {
     pub base: BaseMachine,
     pub provider: MachineProvider,
@@ -89,7 +130,7 @@ pub struct BaseMachine {
     pub connectors: Vec<MachineConnector>,
 }
 
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, From)]
 pub enum MachineProvider {
     Renode(RenodeMachineProvider),
     Qemu(QemuMachineProvider),
@@ -102,7 +143,7 @@ impl MachineProvider {
         match self {
             Renode(_) => ProviderKind::Renode,
             Qemu(_) => ProviderKind::Qemu,
-            Container(_) => ProviderKind::Docker,
+            Container(_) => ProviderKind::Container,
         }
     }
 }
@@ -121,14 +162,27 @@ pub enum ConnectorProperties {
     Network(NetworkConnectorProperties),
 }
 
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display)]
+impl ConnectorProperties {
+    /// Returns Some(true) if this is the source/initiator side of an asymmetrical connection.
+    /// Returns None for symmetrical connections.
+    pub fn is_asymmetrical_initiator(&self) -> Option<bool> {
+        use ConnectorProperties::*;
+        match self {
+            Uart(_p) => None,
+            Gpio(p) => Some(p.source_pin.is_some()),
+            Network(_p) => None,
+        }
+    }
+}
+
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, From, Display)]
 #[display(fmt = "{}")]
 pub enum Connection {
-    #[display(fmt = "{}:{}", "self.kind()", "self.name()")]
+    #[display(fmt = "<{}> {}", "self.kind()", "self.name()")]
     Uart(UartConnection),
-    #[display(fmt = "{}:{}", "self.kind()", "self.name()")]
+    #[display(fmt = "<{}> {}", "self.kind()", "self.name()")]
     Gpio(GpioConnection),
-    #[display(fmt = "{}:{}", "self.kind()", "self.name()")]
+    #[display(fmt = "<{}> {}", "self.kind()", "self.name()")]
     Network(NetworkConnection),
 }
 
@@ -183,6 +237,61 @@ impl From<conductor_config::Global> for Global {
     }
 }
 
+impl TryFrom<(conductor_config::World, &BTreeSet<Connection>)> for World {
+    type Error = ConfigError;
+
+    fn try_from(
+        values: (conductor_config::World, &BTreeSet<Connection>),
+    ) -> Result<Self, Self::Error> {
+        let (value, connections) = values;
+        let name = value
+            .name
+            .as_ref()
+            .and_then(WorldName::new)
+            .ok_or(ConfigError::EmptyWorldName)?;
+        let provider = value
+            .provider
+            .ok_or_else(|| ConfigError::NoWorldProvider(name.clone()))?;
+        let mut connectors = Vec::with_capacity(value.connectors.len());
+        for c in value.connectors.into_iter() {
+            let c = WorldConnector::try_from((c, connections))?;
+            if connectors.contains(&c) {
+                return Err(ConfigError::DupWorldConnector(name, c.name));
+            }
+            connectors.push(c);
+        }
+        Ok(Self {
+            base: BaseWorld {
+                name,
+                environment_variables: value.environment_variables.into(),
+                assets: value.assets.into(),
+                connectors,
+            },
+            provider: provider.into(),
+        })
+    }
+}
+
+impl TryFrom<(conductor_config::WorldConnector, &BTreeSet<Connection>)> for WorldConnector {
+    type Error = ConfigError;
+
+    fn try_from(
+        values: (conductor_config::WorldConnector, &BTreeSet<Connection>),
+    ) -> Result<Self, Self::Error> {
+        let (value, _connections) = values;
+        let name = ConnectionName::new(value.name).ok_or(ConfigError::EmptyConnectorName)?;
+        Ok(Self { name })
+    }
+}
+
+impl From<conductor_config::WorldProvider> for WorldProvider {
+    fn from(value: conductor_config::WorldProvider) -> Self {
+        match value {
+            conductor_config::WorldProvider::Gazebo(p) => WorldProvider::Gazebo(p),
+        }
+    }
+}
+
 impl TryFrom<(conductor_config::Machine, &BTreeSet<Connection>)> for Machine {
     type Error = ConfigError;
 
@@ -205,7 +314,7 @@ impl TryFrom<(conductor_config::Machine, &BTreeSet<Connection>)> for Machine {
         for c in value.connectors.into_iter() {
             let c = MachineConnector::try_from((c, connections))?;
             if connectors.contains(&c) {
-                return Err(ConfigError::DupConnector(name, c.name));
+                return Err(ConfigError::DupMachineConnector(name, c.name));
             }
             connectors.push(c);
         }
@@ -235,7 +344,7 @@ impl TryFrom<(conductor_config::MachineConnector, &BTreeSet<Connection>)> for Ma
         let connection = connections
             .iter()
             .find(|c| c.name() == &name)
-            .ok_or_else(|| ConfigError::MissingConnectorConnection(name.clone()))?;
+            .ok_or_else(|| ConfigError::MissingMachineConnectorConnection(name.clone()))?;
         // TODO - do semantic checks on props
         // GPIO can only specify src or dest pin, not both
         // UART can only have one kind of host integration
@@ -267,11 +376,9 @@ impl TryFrom<conductor_config::Connection> for Connection {
 
     fn try_from(value: conductor_config::Connection) -> Result<Self, Self::Error> {
         Ok(match value {
-            conductor_config::Connection::Uart(c) => Connection::Uart(UartConnection::try_from(c)?),
-            conductor_config::Connection::Gpio(c) => Connection::Gpio(GpioConnection::try_from(c)?),
-            conductor_config::Connection::Network(c) => {
-                Connection::Network(NetworkConnection::try_from(c)?)
-            }
+            conductor_config::Connection::Uart(c) => UartConnection::try_from(c)?.into(),
+            conductor_config::Connection::Gpio(c) => GpioConnection::try_from(c)?.into(),
+            conductor_config::Connection::Network(c) => NetworkConnection::try_from(c)?.into(),
         })
     }
 }
@@ -306,6 +413,60 @@ impl TryFrom<conductor_config::NetworkConnection> for NetworkConnection {
     }
 }
 
+impl Component for World {
+    fn name(&self) -> ComponentName {
+        self.base.name.clone().into()
+    }
+
+    fn provider(&self) -> ProviderKind {
+        self.provider.kind()
+    }
+
+    fn environment_variables(&self) -> &EnvironmentVariableKeyValuePairs {
+        &self.base.environment_variables
+    }
+
+    fn assets(&self) -> &HostToGuestAssetPaths {
+        &self.base.assets
+    }
+
+    fn connectors(&self) -> Vec<ComponentConnector> {
+        self.base
+            .connectors
+            .iter()
+            .cloned()
+            .map(ComponentConnector::from)
+            .collect()
+    }
+}
+
+impl Component for Machine {
+    fn name(&self) -> ComponentName {
+        self.base.name.clone().into()
+    }
+
+    fn provider(&self) -> ProviderKind {
+        self.provider.kind()
+    }
+
+    fn environment_variables(&self) -> &EnvironmentVariableKeyValuePairs {
+        &self.base.environment_variables
+    }
+
+    fn assets(&self) -> &HostToGuestAssetPaths {
+        &self.base.assets
+    }
+
+    fn connectors(&self) -> Vec<ComponentConnector> {
+        self.base
+            .connectors
+            .iter()
+            .cloned()
+            .map(ComponentConnector::from)
+            .collect()
+    }
+}
+
 impl Config {
     pub fn read<P: AsRef<Path>>(config_path: P) -> Result<Self, ConfigReadError> {
         // TODO(jon@auxon.io)
@@ -321,6 +482,10 @@ impl Config {
         //   check for conflicts (env var keys, CLI config/opts, etc)
         //   script mut excl with script path, same for plat desc and commands, etc
         //   empty platform desc
+        //
+        // gazebo
+        //   other fields need path exist checks
+        //
         // ...
 
         let cfg = conductor_config::Config::read(&config_path)?;
@@ -332,6 +497,34 @@ impl Config {
             if let Some(prev_con) = connections.replace(c) {
                 return Err(ConfigError::DupConnection(prev_con.name().clone()).into());
             }
+        }
+
+        let mut worlds: Vec<World> = Vec::with_capacity(cfg.worlds.len());
+        for w in cfg.worlds.into_iter() {
+            let mut w = World::try_from((w, &connections))?;
+            let contains_name_already = worlds
+                .iter()
+                .any(|known_w| known_w.base.name == w.base.name);
+            if contains_name_already {
+                return Err(ConfigError::DupWorld(w.base.name).into());
+            }
+            // Convert relative paths on the host to absolute, where possible
+            if let Some(cfg_dir) = cfg_dir {
+                let assets = w.base.assets.0.clone();
+                w.base.assets.0.clear();
+                for (mut host_asset, guest_asset) in assets.into_iter() {
+                    if host_asset.is_relative() {
+                        host_asset = cfg_dir.join(host_asset);
+                    }
+                    if !host_asset.exists() {
+                        return Err(
+                            ConfigError::NonExistentWorldAsset(host_asset, w.base.name).into()
+                        );
+                    }
+                    w.base.assets.0.insert(host_asset, guest_asset);
+                }
+            }
+            worlds.push(w);
         }
 
         let mut machines: Vec<Machine> = Vec::with_capacity(cfg.machines.len());
@@ -375,6 +568,7 @@ impl Config {
 
         Ok(Self {
             global: cfg.global.into(),
+            worlds,
             machines,
             connections,
         })

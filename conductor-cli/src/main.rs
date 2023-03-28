@@ -10,7 +10,7 @@ async fn main() -> Result<()> {
 
     tracing_subscriber::fmt::init();
 
-    match &args.command {
+    match args.command {
         Command::System(c) => commands::system::handle(c),
         Command::Machine(_) => todo!("machine"),
     }
