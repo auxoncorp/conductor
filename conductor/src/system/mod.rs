@@ -1,5 +1,6 @@
 use crate::{Config, WorldOrMachineComponent};
 use anyhow::{bail, Result};
+use std::borrow::Cow;
 use std::path::{Path, PathBuf};
 
 use crate::types::MachineName;
@@ -92,6 +93,14 @@ impl System {
 
         Ok(())
     }
+
+    pub async fn start(&mut self) -> Result<()> {
+        for machine in &mut self.machines {
+            machine.start().await?;
+        }
+
+        Ok(())
+    }
 }
 
 pub struct Machine {
@@ -102,6 +111,10 @@ pub struct Machine {
 impl Machine {
     pub async fn build(&mut self) -> Result<()> {
         self.provider.build().await
+    }
+
+    pub async fn start(&mut self) -> Result<()> {
+        self.provider.start().await
     }
 }
 
@@ -115,6 +128,13 @@ impl MachineProvider {
     pub async fn build(&mut self) -> Result<()> {
         match self {
             MachineProvider::Container(cont) => cont.build().await,
+            _ => todo!("provider type not yet supported"),
+        }
+    }
+
+    pub async fn start(&mut self) -> Result<()> {
+        match self {
+            MachineProvider::Container(cont) => cont.start().await,
             _ => todo!("provider type not yet supported"),
         }
     }
@@ -153,6 +173,17 @@ impl ContainerMachineProvider {
             (None, None, None) => bail!("none of `image`, `containerfile`, or `context` provided"),
         }
     }
+
+    pub async fn start(&mut self) -> Result<()> {
+        let image = match (&self.image, &self.containerfile, &self.context) {
+            (Some(image_name), None, None) => Cow::Borrowed(image_name),
+            (Some(image_name), Some(_), _) | (Some(image_name), _, Some(_)) => {
+                Cow::Owned(format!("conductor/{image_name}"))
+            }
+            (None, _, _) => todo!("figure out starting images without names"),
+        };
+        crate::containers::start_container_from_image(&image).await
+    }
 }
 
 pub struct RenodeMachineProvider {
@@ -166,12 +197,44 @@ pub struct QemuMachineProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Global;
+    use crate::types::SystemName;
+    use std::collections::BTreeSet;
 
     #[test]
     fn get_system_from_config_path() -> Result<()> {
         System::try_from_config_path(
             "../test_resources/systems/single-container-machine/conductor.toml",
         )?;
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn run_fake_system() -> Result<()> {
+        let mut system = System {
+            config: Config {
+                global: Global {
+                    name: SystemName::new("fake system").unwrap(),
+                    environment_variables: Default::default(),
+                },
+                machines: Vec::new(),
+                connections: BTreeSet::new(),
+                worlds: Vec::new(),
+            },
+            machines: vec![Machine {
+                _name: MachineName::new("fake machine").unwrap(),
+                provider: MachineProvider::Container(ContainerMachineProvider {
+                    image: Some("docker.io/ubuntu".to_string()),
+                    containerfile: None,
+                    context: None,
+                }),
+            }],
+        };
+
+        system.build().await?;
+
+        system.start().await?;
 
         Ok(())
     }

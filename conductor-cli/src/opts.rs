@@ -49,7 +49,10 @@ pub struct Build {
 
 /// Bring up a system
 #[derive(Parser, Debug)]
-pub struct Start {}
+pub struct Start {
+    #[command(flatten)]
+    pub common: CommonSystemOptions,
+}
 
 /// Tear down a system
 #[derive(Parser, Debug)]

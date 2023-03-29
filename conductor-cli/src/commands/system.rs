@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::borrow::Cow;
 use std::path::Path;
 
-use crate::opts::{self, Build, Check};
+use crate::opts::{self, Build, Check, Start};
 use conductor::*;
 
 pub async fn handle(s: opts::System) -> Result<()> {
@@ -36,6 +36,11 @@ pub async fn handle(s: opts::System) -> Result<()> {
             let mut system = common.resolve_system()?;
             system.build().await?;
             println!("system built");
+        }
+        opts::System::Start(Start { common }) => {
+            let mut system = common.resolve_system()?;
+            system.start().await?;
+            println!("system started");
         }
         _ => todo!("system"),
     }
