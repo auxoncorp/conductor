@@ -2,13 +2,13 @@ use anyhow::Result;
 use std::borrow::Cow;
 use std::path::Path;
 
-use crate::opts;
+use crate::opts::{self, Build, Check};
 use conductor::*;
 
-pub fn handle(s: opts::System) -> Result<()> {
+pub async fn handle(s: opts::System) -> Result<()> {
     match s {
-        opts::System::Check(check) => {
-            let config_path: Cow<Path> = if let Some(config_path) = &check.common.config {
+        opts::System::Check(Check { common }) => {
+            let config_path: Cow<Path> = if let Some(config_path) = &common.config {
                 config_path.into()
             } else {
                 conductor_config::find_config_file()?.into()
@@ -32,6 +32,11 @@ pub fn handle(s: opts::System) -> Result<()> {
                 graph.write_dot(color, directed, &mut stdout)?;
             }
         },
+        opts::System::Build(Build { common }) => {
+            let mut system = common.resolve_system()?;
+            system.build().await?;
+            println!("system built");
+        }
         _ => todo!("system"),
     }
 

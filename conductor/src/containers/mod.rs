@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use bollard::{
     container,
     container::RemoveContainerOptions,
@@ -88,10 +88,40 @@ pub async fn run_in_container(image: impl AsRef<str>, command: Vec<&str>) -> Res
     Ok(())
 }
 
-pub async fn build_image_from_containerfile(name: &str) -> Result<()> {
+pub async fn build_image_from_name(image: impl AsRef<str>) -> Result<()> {
     let client =
         Docker::connect_with_local_defaults().context("connect to container system service")?;
 
+    let image_response = client
+        .create_image(
+            Some(CreateImageOptions {
+                from_image: image.as_ref(),
+                ..Default::default()
+            }),
+            None,
+            None,
+        )
+        .try_collect::<Vec<_>>()
+        .await
+        .context("fetch image from remote container registry")?;
+
+    trace!(?image_response, "created image");
+
+    let container_config = container::Config {
+        image: Some(image.as_ref()),
+        tty: Some(true),
+        ..Default::default()
+    };
+    let container = client
+        .create_container::<&str, &str>(None, container_config)
+        .await?;
+
+    trace!(?container, "created container");
+
+    Ok(())
+}
+
+pub async fn build_official_local_image(name: &str) -> Result<()> {
     let image_context_dir = {
         // HACK: only supports repo-local images
         let mut path: PathBuf = env!("CARGO_MANIFEST_DIR").into();
@@ -101,11 +131,24 @@ pub async fn build_image_from_containerfile(name: &str) -> Result<()> {
         trace!("image context: {}", path.display());
         path
     };
+
+    let image_name = format!("conductor/{}", name);
+
+    build_image_from_context(&image_name, image_context_dir).await
+}
+
+pub async fn build_image_from_containerfile(name: &str, containerfile: PathBuf) -> Result<()> {
     let tarball_bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
         // TODO: stream tarball
         let mut tarball = tar::Builder::new(Vec::new());
+
+        let containerfile_file_name = containerfile
+            .file_name()
+            .ok_or(anyhow!("containerfile does not name a file"))?
+            .to_os_string();
+
         tarball
-            .append_dir_all(".", image_context_dir)
+            .append_path_with_name(containerfile, containerfile_file_name)
             .context("build in-memory image tarball")
             .unwrap();
 
@@ -116,9 +159,40 @@ pub async fn build_image_from_containerfile(name: &str) -> Result<()> {
     .await
     .context("spawn blocking tokio task to build tarball")??;
 
+    let image_name = format!("conductor/{}", name);
+
+    build_image_from_tar(&image_name, tarball_bytes).await
+}
+
+pub async fn build_image_from_context(name: &str, context: PathBuf) -> Result<()> {
+    trace!(?context, "build image");
+    let tarball_bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
+        // TODO: stream tarball
+        let mut tarball = tar::Builder::new(Vec::new());
+        tarball
+            .append_dir_all(".", context)
+            .context("build in-memory image tarball")
+            .unwrap();
+
+        tarball
+            .into_inner()
+            .context("finish in-memory image tarball")
+    })
+    .await
+    .context("spawn blocking tokio task to build tarball")??;
+
+    let image_name = format!("conductor/{}", name);
+
+    build_image_from_tar(&image_name, tarball_bytes).await
+}
+
+pub async fn build_image_from_tar(name: &str, tarball: Vec<u8>) -> Result<()> {
+    let client =
+        Docker::connect_with_local_defaults().context("connect to container system service")?;
+
     let image_options = BuildImageOptions {
         dockerfile: "Containerfile",
-        t: &format!("conductor/{}", name),
+        t: name,
         labels: [
             ("io.auxon.conductor", ""),
             ("io.auxon.conductor.universe", "Foo"),
@@ -128,8 +202,7 @@ pub async fn build_image_from_containerfile(name: &str) -> Result<()> {
         ..Default::default()
     };
 
-    let mut build_image_progress =
-        client.build_image(image_options, None, Some(tarball_bytes.into()));
+    let mut build_image_progress = client.build_image(image_options, None, Some(tarball.into()));
 
     // receive progress reports on image being built
     while let Some(progress) = build_image_progress.next().await {
@@ -148,6 +221,7 @@ pub async fn build_image_from_containerfile(name: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
     use tracing_test::traced_test;
 
     #[tokio::test]
@@ -186,9 +260,31 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn build_image() -> Result<()> {
+    async fn official_image() -> Result<()> {
         const IMAGE: &str = "renode";
 
-        build_image_from_containerfile(IMAGE).await
+        build_official_local_image(IMAGE).await
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn image_from_containerfile() -> Result<()> {
+        const IMAGE: &str = "single-container-machine";
+
+        let containerfile = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../test_resources/systems/single-container-machine/Containerfile");
+
+        build_image_from_containerfile(IMAGE, containerfile).await
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn image_from_context() -> Result<()> {
+        const IMAGE: &str = "single-container-machine";
+
+        let context = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../test_resources/systems/single-container-machine/");
+
+        build_image_from_context(IMAGE, context).await
     }
 }

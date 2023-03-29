@@ -11,7 +11,7 @@ async fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
     match args.command {
-        Command::System(c) => commands::system::handle(c),
+        Command::System(c) => commands::system::handle(c).await,
         Command::Machine(_) => todo!("machine"),
     }
 }

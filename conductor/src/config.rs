@@ -562,6 +562,19 @@ impl Config {
                     }
                     m.base.assets.0.insert(host_asset, guest_asset);
                 }
+
+                if let MachineProvider::Container(ref mut cmp) = m.provider {
+                    if let Some(ref mut containerfile) = cmp.containerfile {
+                        if containerfile.is_relative() {
+                            *containerfile = cfg_dir.join(&containerfile)
+                        }
+                    }
+                    if let Some(ref mut context) = cmp.context {
+                        if context.is_relative() {
+                            *context = cfg_dir.join(&context)
+                        }
+                    }
+                }
             }
             machines.push(m);
         }
