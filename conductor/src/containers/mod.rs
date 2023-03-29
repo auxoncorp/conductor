@@ -9,9 +9,13 @@ use bollard::{
 use futures_util::{StreamExt, TryStreamExt};
 use std::default::Default;
 use std::path::PathBuf;
-use tracing::{error, trace};
+use tracing::{error, instrument, trace};
 
-pub async fn run_in_container(image: impl AsRef<str>, command: Vec<&str>) -> Result<()> {
+#[instrument]
+pub async fn run_in_container(
+    image: impl AsRef<str> + std::fmt::Debug,
+    command: Vec<&str>,
+) -> Result<()> {
     let client =
         Docker::connect_with_local_defaults().context("connect to container system service")?;
 
@@ -88,7 +92,8 @@ pub async fn run_in_container(image: impl AsRef<str>, command: Vec<&str>) -> Res
     Ok(())
 }
 
-pub async fn build_image_from_name(image: impl AsRef<str>) -> Result<()> {
+#[instrument]
+pub async fn build_image_from_name(image: impl AsRef<str> + std::fmt::Debug) -> Result<()> {
     let client =
         Docker::connect_with_local_defaults().context("connect to container system service")?;
 
@@ -121,6 +126,7 @@ pub async fn build_image_from_name(image: impl AsRef<str>) -> Result<()> {
     Ok(())
 }
 
+#[instrument]
 pub async fn build_official_local_image(name: &str) -> Result<()> {
     let image_context_dir = {
         // HACK: only supports repo-local images
@@ -137,6 +143,7 @@ pub async fn build_official_local_image(name: &str) -> Result<()> {
     build_image_from_context(&image_name, image_context_dir).await
 }
 
+#[instrument]
 pub async fn build_image_from_containerfile(name: &str, containerfile: PathBuf) -> Result<()> {
     let tarball_bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
         // TODO: stream tarball
@@ -164,6 +171,7 @@ pub async fn build_image_from_containerfile(name: &str, containerfile: PathBuf) 
     build_image_from_tar(&image_name, tarball_bytes).await
 }
 
+#[instrument]
 pub async fn build_image_from_context(name: &str, context: PathBuf) -> Result<()> {
     trace!(?context, "build image");
     let tarball_bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
@@ -186,6 +194,7 @@ pub async fn build_image_from_context(name: &str, context: PathBuf) -> Result<()
     build_image_from_tar(&image_name, tarball_bytes).await
 }
 
+#[instrument(skip(tarball))]
 pub async fn build_image_from_tar(name: &str, tarball: Vec<u8>) -> Result<()> {
     let client =
         Docker::connect_with_local_defaults().context("connect to container system service")?;
@@ -214,6 +223,32 @@ pub async fn build_image_from_tar(name: &str, tarball: Vec<u8>) -> Result<()> {
     }
 
     trace!("image built");
+
+    Ok(())
+}
+
+#[instrument]
+pub async fn start_container_from_image(image: &str) -> Result<()> {
+    let client =
+        Docker::connect_with_local_defaults().context("connect to container system service")?;
+
+    // TODO: do create in build, depends on somehow associating containers between runs
+    let container_config = container::Config {
+        image: Some(image),
+        tty: Some(true),
+        ..Default::default()
+    };
+    let container = client
+        .create_container::<&str, &str>(None, container_config)
+        .await?;
+
+    trace!(?container, "created container");
+
+    client
+        .start_container::<String>(&container.id, None)
+        .await?;
+
+    trace!("container started");
 
     Ok(())
 }
