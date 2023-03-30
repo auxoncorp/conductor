@@ -225,7 +225,7 @@ mod tests {
             machines: vec![Machine {
                 _name: MachineName::new("fake machine").unwrap(),
                 provider: MachineProvider::Container(ContainerMachineProvider {
-                    image: Some("docker.io/ubuntu".to_string()),
+                    image: Some("docker.io/ubuntu:latest".to_string()),
                     containerfile: None,
                     context: None,
                 }),
