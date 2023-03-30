@@ -138,9 +138,7 @@ pub async fn build_official_local_image(name: &str) -> Result<()> {
         path
     };
 
-    let image_name = format!("conductor/{}", name);
-
-    build_image_from_context(&image_name, image_context_dir).await
+    build_image_from_context(name, image_context_dir).await
 }
 
 #[instrument]
@@ -261,6 +259,8 @@ pub async fn start_container_from_image_with_command(
     let client =
         Docker::connect_with_local_defaults().context("connect to container system service")?;
 
+    trace!("create container");
+
     // TODO: do create in build, depends on somehow associating containers between runs
     let container_config = container::Config {
         image: Some(image),
@@ -361,6 +361,7 @@ mod tests {
         // ensure local image is built
         build_official_local_image(IMAGE).await?;
 
-        start_container_from_image_with_command(IMAGE, vec!["whoami"]).await
+        // TODO: come up with a standard way to reference images
+        start_container_from_image_with_command(&format!("conductor/{IMAGE}"), vec!["whoami"]).await
     }
 }
