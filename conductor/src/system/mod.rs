@@ -1,4 +1,4 @@
-use crate::{ComponentGraph, Config, WorldOrMachineComponent};
+use crate::{types::HostToGuestAssetPaths, ComponentGraph, Config, WorldOrMachineComponent};
 use anyhow::{bail, Result};
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
@@ -74,6 +74,7 @@ impl System {
                                 image: cont_prov_cfg.image.clone(),
                                 containerfile: cont_prov_cfg.containerfile.clone(),
                                 context: cont_prov_cfg.context.clone(),
+                                assets: Some(machine.base.assets),
                             })
                         }
                         _ => todo!("provider not yet supported"),
@@ -151,6 +152,7 @@ pub struct ContainerMachineProvider {
     image: Option<String>,
     containerfile: Option<PathBuf>,
     context: Option<PathBuf>,
+    assets: Option<HostToGuestAssetPaths>,
 }
 
 impl ContainerMachineProvider {
@@ -189,7 +191,8 @@ impl ContainerMachineProvider {
             }
             (None, _, _) => todo!("figure out starting images without names"),
         };
-        crate::containers::start_container_from_image(&image).await
+
+        crate::containers::start_container_from_image(&image, self.assets.as_ref()).await
     }
 }
 
@@ -235,6 +238,7 @@ mod tests {
                     image: Some("docker.io/ubuntu:latest".to_string()),
                     containerfile: None,
                     context: None,
+                    assets: Default::default(),
                 }),
             }],
         };

@@ -1,6 +1,7 @@
 use assert_cmd::prelude::*;
 use assert_fs::{prelude::*, TempDir};
 use predicates::prelude::*;
+use std::ffi::OsStr;
 use std::process::Command;
 
 /// ensure the `conductor` bin is fresh and build a `Command` for it
@@ -8,20 +9,36 @@ fn conductor_command() -> Command {
     Command::cargo_bin("conductor").expect("get conductor binary")
 }
 
-/// copy a tests system into a temporary directory and `cd` the command child to it
+/// Create a copy of a test system in a temporary directory, build `Commands` for `conductor` `cd`d
+/// into that directory.
 ///
-/// Note: Droppping the `TempDir` deletes the directory. Hold on to it until you're done.
-fn unique_conductor(test_system_name: &str) -> (Command, TempDir) {
-    let mut cmd = conductor_command();
+/// Note: Droppping this deletes the temporary directory. Hold on to it until you're done.
+struct UniqueConductor {
+    tmp: TempDir,
+}
 
-    let test_system_dir = format!("../test_resources/systems/{test_system_name}");
+impl UniqueConductor {
+    fn new(test_system_name: &str) -> Self {
+        let test_system_dir = format!("../test_resources/systems/{test_system_name}");
 
-    let dir = TempDir::new().unwrap();
-    dir.copy_from(test_system_dir, &["*"]).unwrap();
+        let dir = TempDir::new().unwrap();
+        dir.copy_from(test_system_dir, &["*"]).unwrap();
 
-    cmd.current_dir(&dir);
+        Self { tmp: dir }
+    }
 
-    (cmd, dir)
+    fn cmd<I, S>(&self, args: I) -> Command
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<OsStr>,
+    {
+        let mut cmd = conductor_command();
+
+        cmd.current_dir(&self.tmp);
+        cmd.args(args);
+
+        cmd
+    }
 }
 
 #[test]
@@ -45,9 +62,9 @@ fn bare_command_gives_help() {
 
 #[test]
 fn system_check_finds_right_config() {
-    let (mut cmd, _context_dir) = unique_conductor("single-container-machine");
+    let cond = UniqueConductor::new("single-container-machine");
 
-    cmd.args(["system", "check"]);
+    let mut cmd = cond.cmd(["system", "check"]);
 
     cmd.assert()
         .success()
@@ -56,11 +73,45 @@ fn system_check_finds_right_config() {
 
 #[test]
 fn system_build_exits_successfully() {
-    let (mut cmd, _context_dir) = unique_conductor("single-container-from-image");
+    let cond = UniqueConductor::new("single-container-machine");
 
-    cmd.args(["system", "build"]);
+    let mut cmd = cond.cmd(["system", "build"]);
 
     cmd.assert()
         .success()
         .stdout(predicate::str::contains("system built"));
+}
+
+#[test]
+fn system_builds_and_starts() {
+    let cond = UniqueConductor::new("single-container-machine");
+
+    let mut cmd = cond.cmd(["system", "build"]);
+
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("system built"));
+}
+
+#[test]
+fn system_with_ext_bin_builds_and_starts() {
+    let cond = UniqueConductor::new("single-container-machine");
+
+    // build
+    let mut build = cond.cmd(["system", "build"]);
+
+    build
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("system built"));
+
+    // start
+    let mut start = cond.cmd(["system", "start"]);
+
+    start
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("system started"));
+
+    //TODO: make sure that the right thing got started (spoiler: it's didn't)
 }

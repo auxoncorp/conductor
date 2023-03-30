@@ -1,12 +1,15 @@
+use crate::types::HostToGuestAssetPaths;
 use anyhow::{anyhow, Context, Result};
 use bollard::{
     container,
     container::RemoveContainerOptions,
     exec::{CreateExecOptions, StartExecResults},
     image::{BuildImageOptions, CreateImageOptions},
+    models::{Mount, MountTypeEnum},
     Docker,
 };
 use futures_util::{StreamExt, TryStreamExt};
+use std::collections::HashMap;
 use std::default::Default;
 use std::path::PathBuf;
 use tracing::{error, instrument, trace};
@@ -226,14 +229,32 @@ pub async fn build_image_from_tar(name: &str, tarball: Vec<u8>) -> Result<()> {
 }
 
 #[instrument]
-pub async fn start_container_from_image(image: &str) -> Result<()> {
+pub async fn start_container_from_image(
+    image: &str,
+    mounts: Option<&HostToGuestAssetPaths>,
+) -> Result<()> {
     let client =
         Docker::connect_with_local_defaults().context("connect to container system service")?;
+
+    let mounts = mounts.map(|some_mounts| {
+        some_mounts
+            .iter()
+            .map(|(host_path, container_path)| Mount {
+                source: Some(host_path.to_str().unwrap().to_string()),
+                target: Some(container_path.to_str().unwrap().to_string()),
+                ..Default::default()
+            })
+            .collect()
+    });
 
     // TODO: do create in build, depends on somehow associating containers between runs
     let container_config = container::Config {
         image: Some(image),
         tty: Some(true),
+        host_config: Some(bollard::models::HostConfig {
+            mounts,
+            ..Default::default()
+        }),
         ..Default::default()
     };
     let container = client
@@ -255,17 +276,34 @@ pub async fn start_container_from_image(image: &str) -> Result<()> {
 pub async fn start_container_from_image_with_command(
     image: &str,
     command: Vec<&str>,
+    mounts: Option<HashMap<&str, &str>>,
 ) -> Result<()> {
     let client =
         Docker::connect_with_local_defaults().context("connect to container system service")?;
 
     trace!("create container");
 
+    let mounts = mounts.map(|some_mounts| {
+        some_mounts
+            .iter()
+            .map(|(host_path, container_path)| Mount {
+                typ: Some(MountTypeEnum::BIND),
+                source: Some(host_path.to_string()),
+                target: Some(container_path.to_string()),
+                ..Default::default()
+            })
+            .collect()
+    });
+
     // TODO: do create in build, depends on somehow associating containers between runs
     let container_config = container::Config {
         image: Some(image),
         tty: Some(true),
         cmd: Some(command),
+        host_config: Some(bollard::models::HostConfig {
+            mounts,
+            ..Default::default()
+        }),
         ..Default::default()
     };
     let container = client
@@ -362,6 +400,29 @@ mod tests {
         build_official_local_image(IMAGE).await?;
 
         // TODO: come up with a standard way to reference images
-        start_container_from_image_with_command(&format!("conductor/{IMAGE}"), vec!["whoami"]).await
+        start_container_from_image_with_command(&format!("conductor/{IMAGE}"), vec!["whoami"], None)
+            .await
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn command_in_container_with_mount() -> Result<()> {
+        const IMAGE: &str = "docker.io/ubuntu:latest";
+
+        // ensure local image is built
+        build_image_from_name(IMAGE).await?;
+
+        let c = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../test_resources/systems/single-container-machine/");
+        let cc = c.canonicalize().unwrap();
+        let sc = cc.as_os_str().to_str().unwrap();
+
+        // TODO: test that the command succeded
+        start_container_from_image_with_command(
+            IMAGE,
+            vec!["/app/application.sh"],
+            Some(HashMap::from([(sc, "/app/")])),
+        )
+        .await
     }
 }
