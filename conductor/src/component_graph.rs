@@ -21,8 +21,8 @@ const DEFAULT_COLOR: Color = Color {
     b: 0xFF,
 };
 
-#[derive(Debug, thiserror::Error)]
-#[error("A config inconsistency error was encountered during component graph construction")]
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, thiserror::Error)]
+#[error("A config inconsistency error was encountered during component graph analysis")]
 pub struct InconsistencyError;
 
 // TODO
@@ -34,9 +34,9 @@ pub struct ComponentGraph<N> {
     /// Map of connections and the set of components that are connected to that connection
     connections_to_components: BTreeMap<ConnectionName, BTreeSet<ComponentName>>,
 
-    /// Set of components within a parent container based on the connection
+    /// Set of connections and components within a parent container based on the connection
     /// constraints imposed by the component's provider
-    components_by_container: BTreeSet<BTreeSet<ComponentName>>,
+    components_by_container: BTreeSet<Container>,
 
     g: InnerGraph<N>,
 }
@@ -95,7 +95,7 @@ impl<N: Component + fmt::Display + Clone> ComponentGraph<N> {
             }
         }
 
-        // NOTE: this isn't very effecient, it dups/throws-away a lot
+        // NOTE: this isn't very efficient, it dups/throws-away a lot
         // we could instead actually walk the graph instead of
         // just immediate neighboring components
         let mut containers_with_dups = BTreeSet::new();
@@ -117,21 +117,29 @@ impl<N: Component + fmt::Display + Clone> ComponentGraph<N> {
                         .node_weight(edge.target())
                         .map(|c| c.name())
                         .ok_or(InconsistencyError)?;
-                    container.0.insert(other_comp);
+                    container.components.insert(other_comp);
                 }
             }
-            containers_with_dups.insert(container.0);
+            containers_with_dups.insert(container);
         }
         // Merge containers with common components
         let mut components_by_container = BTreeSet::new();
         for comp_name in components.keys() {
             let mut cont = Container::default();
             for c in containers_with_dups.iter() {
-                if c.contains(comp_name) {
-                    cont.merge(c.clone());
+                if c.components.contains(comp_name) {
+                    cont.merge_components(c.components.clone());
                 }
             }
-            components_by_container.insert(cont.0);
+
+            for cn in cont.components.iter() {
+                let c = components.get(cn).ok_or(InconsistencyError)?;
+                for conn in c.connectors().into_iter().map(|c| c.name().clone()) {
+                    cont.connections.insert(conn);
+                }
+            }
+
+            components_by_container.insert(cont);
         }
 
         Ok(Self {
@@ -147,15 +155,23 @@ impl<N: Component + fmt::Display + Clone> ComponentGraph<N> {
         &self.connections
     }
 
+    pub fn connection(&self, name: &ConnectionName) -> Result<&Connection, InconsistencyError> {
+        self.connections().get(name).ok_or(InconsistencyError)
+    }
+
     pub fn components(&self) -> &BTreeMap<ComponentName, N> {
         &self.components
+    }
+
+    pub fn component(&self, name: &ComponentName) -> Result<&N, InconsistencyError> {
+        self.components().get(name).ok_or(InconsistencyError)
     }
 
     pub fn connections_to_components(&self) -> &BTreeMap<ConnectionName, BTreeSet<ComponentName>> {
         &self.connections_to_components
     }
 
-    pub fn components_by_container(&self) -> &BTreeSet<BTreeSet<ComponentName>> {
+    pub fn components_by_container(&self) -> &BTreeSet<Container> {
         &self.components_by_container
     }
 
@@ -177,8 +193,8 @@ impl<N: Component + fmt::Display + Clone> ComponentGraph<N> {
             .components_by_container
             .iter()
             .enumerate()
-            .flat_map(|(idx, comps)| {
-                comps
+            .flat_map(|(idx, cont)| {
+                cont.components
                     .iter()
                     .cloned()
                     .map(move |name| (name, CATEGORY10[idx % CATEGORY10.len()]))
@@ -238,19 +254,23 @@ impl<N: Component + fmt::Display + Clone> ComponentGraph<N> {
     }
 }
 
+// TODO - maybe surface this type in the types/etc for more widespread usage
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
-struct Container(BTreeSet<ComponentName>);
+pub struct Container {
+    pub connections: BTreeSet<ConnectionName>,
+    pub components: BTreeSet<ComponentName>,
+}
 
 impl Container {
     fn from(comp: ComponentName) -> Self {
         let mut c = Self::default();
-        c.0.insert(comp);
+        c.components.insert(comp);
         c
     }
 
-    fn merge(&mut self, other: BTreeSet<ComponentName>) {
+    fn merge_components(&mut self, other: BTreeSet<ComponentName>) {
         for comp in other.into_iter() {
-            self.0.insert(comp);
+            self.components.insert(comp);
         }
     }
 }

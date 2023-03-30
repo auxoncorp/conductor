@@ -1,7 +1,10 @@
-use crate::component::{Component, ComponentConnector};
 use crate::types::{
     ComponentName, ConnectionKind, ConnectionName, EnvironmentVariableKeyValuePairs,
     HostToGuestAssetPaths, InterfaceName, MachineName, ProviderKind, SystemName, WorldName,
+};
+use crate::{
+    component::{Component, ComponentConnector},
+    provider::{gazebo, qemu, renode},
 };
 use conductor_config::{
     ConnectorPropertiesError, ContainerMachineProvider, GazeboWorldProvider,
@@ -230,7 +233,7 @@ impl From<conductor_config::Global> for Global {
             name: value
                 .name
                 .as_ref()
-                .and_then(SystemName::new)
+                .and_then(SystemName::new_canonicalize)
                 .unwrap_or_default(),
             environment_variables: value.environment_variables.into(),
         }
@@ -247,7 +250,7 @@ impl TryFrom<(conductor_config::World, &BTreeSet<Connection>)> for World {
         let name = value
             .name
             .as_ref()
-            .and_then(WorldName::new)
+            .and_then(WorldName::new_canonicalize)
             .ok_or(ConfigError::EmptyWorldName)?;
         let provider = value
             .provider
@@ -279,7 +282,8 @@ impl TryFrom<(conductor_config::WorldConnector, &BTreeSet<Connection>)> for Worl
         values: (conductor_config::WorldConnector, &BTreeSet<Connection>),
     ) -> Result<Self, Self::Error> {
         let (value, _connections) = values;
-        let name = ConnectionName::new(value.name).ok_or(ConfigError::EmptyConnectorName)?;
+        let name =
+            ConnectionName::new_canonicalize(value.name).ok_or(ConfigError::EmptyConnectorName)?;
         Ok(Self { name })
     }
 }
@@ -302,8 +306,10 @@ impl TryFrom<(conductor_config::Machine, &BTreeSet<Connection>)> for Machine {
         let name = value
             .name
             .as_ref()
-            .and_then(MachineName::new)
+            .and_then(MachineName::new_canonicalize)
             .ok_or(ConfigError::EmptyMachineName)?;
+        // TODO - this will change
+        // we should also support url/uri too
         let bin = value
             .bin
             .ok_or_else(|| ConfigError::NoMachineBin(name.clone()))?;
@@ -338,9 +344,10 @@ impl TryFrom<(conductor_config::MachineConnector, &BTreeSet<Connection>)> for Ma
         values: (conductor_config::MachineConnector, &BTreeSet<Connection>),
     ) -> Result<Self, Self::Error> {
         let (value, connections) = values;
-        let name = ConnectionName::new(&value.name).ok_or(ConfigError::EmptyConnectorName)?;
-        let interface =
-            InterfaceName::new(&value.interface).ok_or(ConfigError::EmptyConnectorInterface)?;
+        let name =
+            ConnectionName::new_canonicalize(&value.name).ok_or(ConfigError::EmptyConnectorName)?;
+        let interface = InterfaceName::new_canonicalize(&value.interface)
+            .ok_or(ConfigError::EmptyConnectorInterface)?;
         let connection = connections
             .iter()
             .find(|c| c.name() == &name)
@@ -388,7 +395,8 @@ impl TryFrom<conductor_config::UartConnection> for UartConnection {
 
     fn try_from(value: conductor_config::UartConnection) -> Result<Self, Self::Error> {
         Ok(Self {
-            name: ConnectionName::new(value.name).ok_or(ConfigError::EmptyConnectionName)?,
+            name: ConnectionName::new_canonicalize(value.name)
+                .ok_or(ConfigError::EmptyConnectionName)?,
         })
     }
 }
@@ -398,7 +406,8 @@ impl TryFrom<conductor_config::GpioConnection> for GpioConnection {
 
     fn try_from(value: conductor_config::GpioConnection) -> Result<Self, Self::Error> {
         Ok(Self {
-            name: ConnectionName::new(value.name).ok_or(ConfigError::EmptyConnectionName)?,
+            name: ConnectionName::new_canonicalize(value.name)
+                .ok_or(ConfigError::EmptyConnectionName)?,
         })
     }
 }
@@ -408,8 +417,96 @@ impl TryFrom<conductor_config::NetworkConnection> for NetworkConnection {
 
     fn try_from(value: conductor_config::NetworkConnection) -> Result<Self, Self::Error> {
         Ok(Self {
-            name: ConnectionName::new(value.name).ok_or(ConfigError::EmptyConnectionName)?,
+            name: ConnectionName::new_canonicalize(value.name)
+                .ok_or(ConfigError::EmptyConnectionName)?,
         })
+    }
+}
+
+impl WorldProvider {
+    // TODO - these methods are somewhat ill-placed, this will get cleaned
+    // up once we do a refactor on conductor-config vs this-config-mod unification.
+    pub(crate) fn container_entrypoint_command(&self) -> String {
+        use WorldProvider::*;
+        match self {
+            Gazebo(_) => gazebo::COMMAND.to_owned(),
+        }
+    }
+
+    pub(crate) fn container_entrypoint_args(&self) -> Vec<String> {
+        let mut args = Vec::new();
+        use WorldProvider::*;
+        match self {
+            Gazebo(_) => {
+                // TODO
+                // will look like this
+                // gz sim -r world.sdf
+                args.push("sim".to_owned());
+                args.push("-r".to_owned());
+                args.push("world.sdf".to_owned());
+            }
+        }
+        args
+    }
+}
+
+impl MachineProvider {
+    // TODO - same note as above in WorldProvider, probably impl on something else
+    pub(crate) fn container_entrypoint_command(&self) -> String {
+        use MachineProvider::*;
+        match self {
+            Renode(_p) => renode::COMMAND.to_owned(),
+            Qemu(_p) => {
+                // TODO - determine this based on the bin field or explicit
+                // if bin is ELF, see what kind it is
+                qemu::COMMAND.to_owned()
+            }
+            Container(_) => {
+                // TODO
+                String::from("todo-app-or-whatever")
+            }
+        }
+    }
+
+    pub(crate) fn container_entrypoint_args(&self) -> Vec<String> {
+        use MachineProvider::*;
+        let mut args = Vec::new();
+        match self {
+            Renode(p) => {
+                if p.cli.plain.unwrap_or(false) {
+                    args.push("--plain".to_owned());
+                }
+                if let Some(p) = p.cli.port {
+                    args.push("--port".to_owned());
+                    args.push(p.to_string());
+                }
+                if p.cli.disable_xwt.unwrap_or(false) {
+                    args.push("--disable-xwt".to_owned());
+                }
+                if p.cli.hide_monitor.unwrap_or(false) {
+                    args.push("--hide-monitor".to_owned());
+                }
+                if p.cli.hide_log.unwrap_or(false) {
+                    args.push("--hide-log".to_owned());
+                }
+                if p.cli.hide_analyzers.unwrap_or(false) {
+                    args.push("--hide-analyzers".to_owned());
+                }
+                if p.cli.console.unwrap_or(false) {
+                    args.push("--console".to_owned());
+                }
+                if p.cli.keep_temporary_files.unwrap_or(false) {
+                    args.push("--keep-temporary-files".to_owned());
+                }
+            }
+            Qemu(_p) => {
+                // TODO
+                // args that are local to qemu machine config
+                // IO and shared stuff gets added later on
+            }
+            Container(_) => (),
+        }
+        args
     }
 }
 
@@ -438,6 +535,14 @@ impl Component for World {
             .map(ComponentConnector::from)
             .collect()
     }
+
+    fn container_entrypoint_command(&self) -> String {
+        self.provider.container_entrypoint_command()
+    }
+
+    fn container_entrypoint_args(&self) -> Vec<String> {
+        self.provider.container_entrypoint_args()
+    }
 }
 
 impl Component for Machine {
@@ -464,6 +569,14 @@ impl Component for Machine {
             .cloned()
             .map(ComponentConnector::from)
             .collect()
+    }
+
+    fn container_entrypoint_command(&self) -> String {
+        self.provider.container_entrypoint_command()
+    }
+
+    fn container_entrypoint_args(&self) -> Vec<String> {
+        self.provider.container_entrypoint_args()
     }
 }
 

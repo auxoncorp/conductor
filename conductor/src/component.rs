@@ -11,24 +11,8 @@ pub trait Component {
     fn environment_variables(&self) -> &EnvironmentVariableKeyValuePairs;
     fn assets(&self) -> &HostToGuestAssetPaths;
     fn connectors(&self) -> Vec<ComponentConnector>;
-}
-
-impl<T: Component + ?Sized> Component for Box<T> {
-    fn name(&self) -> ComponentName {
-        T::name(self)
-    }
-    fn provider(&self) -> ProviderKind {
-        T::provider(self)
-    }
-    fn environment_variables(&self) -> &EnvironmentVariableKeyValuePairs {
-        T::environment_variables(self)
-    }
-    fn assets(&self) -> &HostToGuestAssetPaths {
-        T::assets(self)
-    }
-    fn connectors(&self) -> Vec<ComponentConnector> {
-        T::connectors(self)
-    }
+    fn container_entrypoint_command(&self) -> String;
+    fn container_entrypoint_args(&self) -> Vec<String>;
 }
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, From, Display)]
@@ -71,6 +55,38 @@ impl Component for WorldOrMachineComponent {
         match self {
             World(c) => Component::connectors(c),
             Machine(c) => Component::connectors(c),
+        }
+    }
+    fn container_entrypoint_command(&self) -> String {
+        use WorldOrMachineComponent::*;
+        match self {
+            World(c) => Component::container_entrypoint_command(c),
+            Machine(c) => Component::container_entrypoint_command(c),
+        }
+    }
+    fn container_entrypoint_args(&self) -> Vec<String> {
+        use WorldOrMachineComponent::*;
+        match self {
+            World(c) => Component::container_entrypoint_args(c),
+            Machine(c) => Component::container_entrypoint_args(c),
+        }
+    }
+}
+
+impl WorldOrMachineComponent {
+    // TODO - not sure this pattern will stick around
+    pub fn to_renode_machine(&self) -> Option<crate::provider::renode::RenodeMachine> {
+        use crate::config::MachineProvider::*;
+        use WorldOrMachineComponent::*;
+        match self {
+            World(_) => None,
+            Machine(m) => match &m.provider {
+                Renode(r) => Some(crate::provider::renode::RenodeMachine {
+                    base: m.base.clone(),
+                    provider: r.clone(),
+                }),
+                _ => None,
+            },
         }
     }
 }

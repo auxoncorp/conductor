@@ -1,4 +1,4 @@
-use crate::{Config, WorldOrMachineComponent};
+use crate::{ComponentGraph, Config, WorldOrMachineComponent};
 use anyhow::{bail, Result};
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
@@ -51,6 +51,13 @@ impl System {
                     .map(WorldOrMachineComponent::from),
             )
             .collect()
+    }
+
+    pub fn graph(&self) -> Result<ComponentGraph<WorldOrMachineComponent>> {
+        let components = self.components();
+        let connections = self.config.connections.clone();
+        let g = ComponentGraph::new(components, connections)?;
+        Ok(g)
     }
 
     // TODO.pb: This should handle conversion of all of `Config` and `System` shouldn't have a raw
@@ -215,7 +222,7 @@ mod tests {
         let mut system = System {
             config: Config {
                 global: Global {
-                    name: SystemName::new("fake system").unwrap(),
+                    name: SystemName::new_canonicalize("fake-system").unwrap(),
                     environment_variables: Default::default(),
                 },
                 machines: Vec::new(),
@@ -223,7 +230,7 @@ mod tests {
                 worlds: Vec::new(),
             },
             machines: vec![Machine {
-                _name: MachineName::new("fake machine").unwrap(),
+                _name: MachineName::new_canonicalize("fake-machine").unwrap(),
                 provider: MachineProvider::Container(ContainerMachineProvider {
                     image: Some("docker.io/ubuntu:latest".to_string()),
                     containerfile: None,

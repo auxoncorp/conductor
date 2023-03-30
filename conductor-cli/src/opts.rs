@@ -77,6 +77,16 @@ pub enum Export {
         #[arg(long)]
         directed: bool,
     },
+
+    /// Export the system's internal provider artifacts
+    ProviderArtifacts {
+        #[command(flatten)]
+        common: CommonSystemOptions,
+
+        /// Output directory
+        #[arg(default_value = "provider-artifacts")]
+        output_path: PathBuf,
+    },
 }
 
 #[derive(Parser, Debug)]
