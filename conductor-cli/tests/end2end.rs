@@ -51,7 +51,7 @@ fn system_check_finds_right_config() {
 
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("container system"));
+        .stdout(predicate::str::contains("container_system"));
 }
 
 #[test]

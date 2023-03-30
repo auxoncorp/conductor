@@ -1,8 +1,8 @@
-use crate::stringy_newtype;
+use crate::name_newtype;
 use derive_more::{AsRef, Deref, Display, From, Into};
 use std::{collections::BTreeMap, path::PathBuf};
 
-stringy_newtype!(SystemName);
+name_newtype!(SystemName);
 
 impl Default for SystemName {
     fn default() -> Self {
@@ -10,11 +10,11 @@ impl Default for SystemName {
     }
 }
 
-stringy_newtype!(ComponentName);
-stringy_newtype!(WorldName);
-stringy_newtype!(MachineName);
-stringy_newtype!(ConnectionName);
-stringy_newtype!(InterfaceName);
+name_newtype!(ComponentName);
+name_newtype!(WorldName);
+name_newtype!(MachineName);
+name_newtype!(ConnectionName);
+name_newtype!(InterfaceName);
 
 // TODO(jon@auxon.io) just a place holder/example
 // we still need a canonical repr and type
@@ -117,7 +117,7 @@ impl From<MachineName> for ComponentName {
 }
 
 #[macro_export]
-macro_rules! stringy_newtype {
+macro_rules! name_newtype {
     ($t:ident) => {
         #[derive(
             Clone,
@@ -141,14 +141,39 @@ macro_rules! stringy_newtype {
         }
 
         impl $t {
-            pub fn new<T: AsRef<str>>(s: T) -> Option<Self> {
-                let s: &str = s.as_ref();
-                if s.is_empty() {
+            // TODO - this constraint is a bit excessive, we should figure out what exactly
+            // we can tolerate at which stages in the pipeline
+            // this is only to satisfy the renode-script-specific use case, we can probably
+            // get away with just doing a local-to-renode-script repr of these
+            pub fn new_canonicalize<T: AsRef<str>>(s: T) -> Option<Self> {
+                let inner: String = s
+                    .as_ref()
+                    .chars()
+                    .map(|c| if c.is_whitespace() { '_' as _ } else { c })
+                    .collect();
+                if inner.is_empty() {
                     None
                 } else {
-                    Some(Self(s.to_owned()))
+                    Some(Self(inner))
                 }
             }
         }
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn canonical_names() {
+        assert_eq!(
+            MachineName::new_canonicalize("my machine"),
+            Some(MachineName("my_machine".to_owned()))
+        );
+        assert_eq!(
+            ComponentName::new_canonicalize("foo\t  \nbar"),
+            Some(ComponentName("foo____bar".to_owned()))
+        );
+    }
 }
