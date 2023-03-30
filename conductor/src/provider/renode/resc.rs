@@ -184,13 +184,13 @@ mod tests {
     fn connections() -> Vec<Connection> {
         vec![
             Connection::Uart(UartConnection {
-                name: ConnectionName::new("foo-uart").unwrap(),
+                name: ConnectionName::new_canonicalize("foo-uart").unwrap(),
             }),
             Connection::Gpio(GpioConnection {
-                name: ConnectionName::new("foo-gpio").unwrap(),
+                name: ConnectionName::new_canonicalize("foo-gpio").unwrap(),
             }),
             Connection::Network(NetworkConnection {
-                name: ConnectionName::new("foo-net").unwrap(),
+                name: ConnectionName::new_canonicalize("foo-net").unwrap(),
             }),
         ]
     }
@@ -199,27 +199,27 @@ mod tests {
         vec![
             RenodeMachine {
                 base: BaseMachine {
-                    name: MachineName::new("my-m0").unwrap(),
+                    name: MachineName::new_canonicalize("my-m0").unwrap(),
                     bin: PathBuf::from("path/to/m0.bin"),
                     environment_variables: Default::default(),
                     assets: Default::default(),
                     connectors: vec![
                         MachineConnector {
-                            name: ConnectionName::new("foo-uart").unwrap(),
-                            interface: InterfaceName::new("sysbus.usart0").unwrap(),
+                            name: ConnectionName::new_canonicalize("foo-uart").unwrap(),
+                            interface: InterfaceName::new_canonicalize("sysbus.usart0").unwrap(),
                             properties: ConnectorProperties::Uart(Default::default()),
                         },
                         MachineConnector {
-                            name: ConnectionName::new("foo-gpio").unwrap(),
-                            interface: InterfaceName::new("sysbus.gpioPortA").unwrap(),
+                            name: ConnectionName::new_canonicalize("foo-gpio").unwrap(),
+                            interface: InterfaceName::new_canonicalize("sysbus.gpioPortA").unwrap(),
                             properties: ConnectorProperties::Gpio(GpioConnectorProperties {
                                 source_pin: Some(2),
                                 ..Default::default()
                             }),
                         },
                         MachineConnector {
-                            name: ConnectionName::new("foo-net").unwrap(),
-                            interface: InterfaceName::new("sysbus.ethernet").unwrap(),
+                            name: ConnectionName::new_canonicalize("foo-net").unwrap(),
+                            interface: InterfaceName::new_canonicalize("sysbus.ethernet").unwrap(),
                             properties: ConnectorProperties::Network(Default::default()),
                         },
                     ],
@@ -236,27 +236,27 @@ mod tests {
             },
             RenodeMachine {
                 base: BaseMachine {
-                    name: MachineName::new("my-m1").unwrap(),
+                    name: MachineName::new_canonicalize("my-m1").unwrap(),
                     bin: PathBuf::from("path/to/m1.bin"),
                     environment_variables: Default::default(),
                     assets: Default::default(),
                     connectors: vec![
                         MachineConnector {
-                            name: ConnectionName::new("foo-uart").unwrap(),
-                            interface: InterfaceName::new("sysbus.usart3").unwrap(),
+                            name: ConnectionName::new_canonicalize("foo-uart").unwrap(),
+                            interface: InterfaceName::new_canonicalize("sysbus.usart3").unwrap(),
                             properties: ConnectorProperties::Uart(Default::default()),
                         },
                         MachineConnector {
-                            name: ConnectionName::new("foo-gpio").unwrap(),
-                            interface: InterfaceName::new("sysbus.gpioPortB").unwrap(),
+                            name: ConnectionName::new_canonicalize("foo-gpio").unwrap(),
+                            interface: InterfaceName::new_canonicalize("sysbus.gpioPortB").unwrap(),
                             properties: ConnectorProperties::Gpio(GpioConnectorProperties {
                                 destination_pin: Some(4),
                                 ..Default::default()
                             }),
                         },
                         MachineConnector {
-                            name: ConnectionName::new("foo-net").unwrap(),
-                            interface: InterfaceName::new("sysbus.eth2").unwrap(),
+                            name: ConnectionName::new_canonicalize("foo-net").unwrap(),
+                            interface: InterfaceName::new_canonicalize("sysbus.eth2").unwrap(),
                             properties: ConnectorProperties::Network(NetworkConnectorProperties {
                                 promiscuous_mode: Some(true),
                             }),
