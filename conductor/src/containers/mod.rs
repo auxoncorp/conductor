@@ -138,9 +138,7 @@ pub async fn build_official_local_image(name: &str) -> Result<()> {
         path
     };
 
-    let image_name = format!("conductor/{}", name);
-
-    build_image_from_context(&image_name, image_context_dir).await
+    build_image_from_context(name, image_context_dir).await
 }
 
 #[instrument]
@@ -253,6 +251,38 @@ pub async fn start_container_from_image(image: &str) -> Result<()> {
     Ok(())
 }
 
+#[instrument]
+pub async fn start_container_from_image_with_command(
+    image: &str,
+    command: Vec<&str>,
+) -> Result<()> {
+    let client =
+        Docker::connect_with_local_defaults().context("connect to container system service")?;
+
+    trace!("create container");
+
+    // TODO: do create in build, depends on somehow associating containers between runs
+    let container_config = container::Config {
+        image: Some(image),
+        tty: Some(true),
+        cmd: Some(command),
+        ..Default::default()
+    };
+    let container = client
+        .create_container::<&str, &str>(None, container_config)
+        .await?;
+
+    trace!(?container, "created container");
+
+    client
+        .start_container::<String>(&container.id, None)
+        .await?;
+
+    trace!("container started");
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -321,5 +351,17 @@ mod tests {
             .join("../test_resources/systems/single-container-machine/");
 
         build_image_from_context(IMAGE, context).await
+    }
+
+    #[tokio::test]
+    #[traced_test]
+    async fn command_in_container_from_image() -> Result<()> {
+        const IMAGE: &str = "renode";
+
+        // ensure local image is built
+        build_official_local_image(IMAGE).await?;
+
+        // TODO: come up with a standard way to reference images
+        start_container_from_image_with_command(&format!("conductor/{IMAGE}"), vec!["whoami"]).await
     }
 }
