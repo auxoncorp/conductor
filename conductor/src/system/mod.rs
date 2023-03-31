@@ -11,13 +11,15 @@ pub struct System {
 }
 
 impl System {
+    #[allow(clippy::let_and_return)]
     pub fn from_config(config: Config) -> Self {
-        let mut system = System {
+        let system = System {
             config,
             machines: Vec::new(),
         };
 
-        system.init_self();
+        // TODO(jon@auxon.io) disabled so I could run without tripping the todo!'s
+        //system.init_self();
 
         system
     }
@@ -63,7 +65,7 @@ impl System {
     // TODO.pb: This should handle conversion of all of `Config` and `System` shouldn't have a raw
     // `Config` at all. This should also be inline in `from_config` before the creation of a
     // `System`.
-    fn init_self(&mut self) {
+    pub fn init_self(&mut self) {
         for component in self.components() {
             match component {
                 WorldOrMachineComponent::Machine(machine) => {

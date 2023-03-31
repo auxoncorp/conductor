@@ -30,7 +30,7 @@ impl<'a, T: io::Write> RenodeScriptGen<'a, T> {
         for m in machines.iter() {
             self.gen_machine_create(m)?;
             self.gen_machine_set(m)?;
-            writeln!(self.w, "$bin = {}", resc_path(&m.base.bin))?;
+            writeln!(self.w, "$bin = {}", resc_path(&m.guest_bin()))?;
             for repl in m.provider.resc.platform_descriptions.iter() {
                 // TODO - we'll need to support all the variants of platform descriptions
                 writeln!(self.w, "machine LoadPlatformDescription @{repl}")?;
@@ -147,6 +147,7 @@ mod tests {
         RenodeScriptConfig,
     };
     use indoc::indoc;
+    use pretty_assertions::assert_eq;
     use std::{path::PathBuf, str};
 
     const RESC: &str = indoc! {r#"
@@ -156,7 +157,7 @@ mod tests {
 
         mach create "my-m0"
         mach set "my-m0"
-        $bin = @path/to/m0.bin
+        $bin = @/conductor_resources/my-m0/m0.bin
         machine LoadPlatformDescription @platforms/cpus/stm32f429.repl
         connector Connect sysbus.usart0 "foo-uart"
         connector Connect sysbus.gpioPortA "foo-gpio"
@@ -168,7 +169,7 @@ mod tests {
 
         mach create "my-m1"
         mach set "my-m1"
-        $bin = @path/to/m1.bin
+        $bin = @/conductor_resources/my-m1/m1.bin
         machine LoadPlatformDescription @platforms/cpus/stm32f411.repl
         connector Connect sysbus.usart3 "foo-uart"
         connector Connect sysbus.gpioPortB "foo-gpio"
@@ -198,6 +199,7 @@ mod tests {
     fn machines() -> Vec<RenodeMachine> {
         vec![
             RenodeMachine {
+                guest_bin_shared: false,
                 base: BaseMachine {
                     name: MachineName::new_canonicalize("my-m0").unwrap(),
                     bin: PathBuf::from("path/to/m0.bin"),
@@ -235,6 +237,7 @@ mod tests {
                 },
             },
             RenodeMachine {
+                guest_bin_shared: false,
                 base: BaseMachine {
                     name: MachineName::new_canonicalize("my-m1").unwrap(),
                     bin: PathBuf::from("path/to/m1.bin"),

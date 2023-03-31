@@ -78,13 +78,13 @@ pub enum Export {
         directed: bool,
     },
 
-    /// Export the system's internal provider artifacts
-    ProviderArtifacts {
+    /// Export the system's internal deployment plan
+    DeploymentPlan {
         #[command(flatten)]
         common: CommonSystemOptions,
 
         /// Output directory
-        #[arg(default_value = "provider-artifacts")]
+        #[arg(default_value = "deployment_plan")]
         output_path: PathBuf,
     },
 }
