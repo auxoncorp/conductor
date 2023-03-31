@@ -9,7 +9,8 @@ pub struct QemuMachineProvider {
     pub cpu: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub memory: Option<String>,
-    pub no_graphic: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub no_graphic: Option<bool>,
     pub qmp: QemuMachineProtocolConfig,
 }
 

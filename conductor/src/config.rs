@@ -1,10 +1,7 @@
+use crate::component::{Component, ComponentConnector};
 use crate::types::{
     ComponentName, ConnectionKind, ConnectionName, EnvironmentVariableKeyValuePairs,
     HostToGuestAssetPaths, InterfaceName, MachineName, ProviderKind, SystemName, WorldName,
-};
-use crate::{
-    component::{Component, ComponentConnector},
-    provider::{gazebo, qemu, renode},
 };
 use conductor_config::{
     ConnectorPropertiesError, ContainerMachineProvider, GazeboWorldProvider,
@@ -423,93 +420,6 @@ impl TryFrom<conductor_config::NetworkConnection> for NetworkConnection {
     }
 }
 
-impl WorldProvider {
-    // TODO - these methods are somewhat ill-placed, this will get cleaned
-    // up once we do a refactor on conductor-config vs this-config-mod unification.
-    pub(crate) fn container_entrypoint_command(&self) -> String {
-        use WorldProvider::*;
-        match self {
-            Gazebo(_) => gazebo::COMMAND.to_owned(),
-        }
-    }
-
-    pub(crate) fn container_entrypoint_args(&self) -> Vec<String> {
-        let mut args = Vec::new();
-        use WorldProvider::*;
-        match self {
-            Gazebo(_) => {
-                // TODO
-                // will look like this
-                // gz sim -r world.sdf
-                args.push("sim".to_owned());
-                args.push("-r".to_owned());
-                args.push("world.sdf".to_owned());
-            }
-        }
-        args
-    }
-}
-
-impl MachineProvider {
-    // TODO - same note as above in WorldProvider, probably impl on something else
-    pub(crate) fn container_entrypoint_command(&self) -> String {
-        use MachineProvider::*;
-        match self {
-            Renode(_p) => renode::COMMAND.to_owned(),
-            Qemu(_p) => {
-                // TODO - determine this based on the bin field or explicit
-                // if bin is ELF, see what kind it is
-                qemu::COMMAND.to_owned()
-            }
-            Container(_) => {
-                // TODO
-                String::from("todo-app-or-whatever")
-            }
-        }
-    }
-
-    pub(crate) fn container_entrypoint_args(&self) -> Vec<String> {
-        use MachineProvider::*;
-        let mut args = Vec::new();
-        match self {
-            Renode(p) => {
-                if p.cli.plain.unwrap_or(false) {
-                    args.push("--plain".to_owned());
-                }
-                if let Some(p) = p.cli.port {
-                    args.push("--port".to_owned());
-                    args.push(p.to_string());
-                }
-                if p.cli.disable_xwt.unwrap_or(false) {
-                    args.push("--disable-xwt".to_owned());
-                }
-                if p.cli.hide_monitor.unwrap_or(false) {
-                    args.push("--hide-monitor".to_owned());
-                }
-                if p.cli.hide_log.unwrap_or(false) {
-                    args.push("--hide-log".to_owned());
-                }
-                if p.cli.hide_analyzers.unwrap_or(false) {
-                    args.push("--hide-analyzers".to_owned());
-                }
-                if p.cli.console.unwrap_or(false) {
-                    args.push("--console".to_owned());
-                }
-                if p.cli.keep_temporary_files.unwrap_or(false) {
-                    args.push("--keep-temporary-files".to_owned());
-                }
-            }
-            Qemu(_p) => {
-                // TODO
-                // args that are local to qemu machine config
-                // IO and shared stuff gets added later on
-            }
-            Container(_) => (),
-        }
-        args
-    }
-}
-
 impl Component for World {
     fn name(&self) -> ComponentName {
         self.base.name.clone().into()
@@ -534,14 +444,6 @@ impl Component for World {
             .cloned()
             .map(ComponentConnector::from)
             .collect()
-    }
-
-    fn container_entrypoint_command(&self) -> String {
-        self.provider.container_entrypoint_command()
-    }
-
-    fn container_entrypoint_args(&self) -> Vec<String> {
-        self.provider.container_entrypoint_args()
     }
 }
 
@@ -569,14 +471,6 @@ impl Component for Machine {
             .cloned()
             .map(ComponentConnector::from)
             .collect()
-    }
-
-    fn container_entrypoint_command(&self) -> String {
-        self.provider.container_entrypoint_command()
-    }
-
-    fn container_entrypoint_args(&self) -> Vec<String> {
-        self.provider.container_entrypoint_args()
     }
 }
 
