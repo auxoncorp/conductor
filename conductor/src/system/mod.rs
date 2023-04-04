@@ -1,8 +1,8 @@
-use crate::{types::HostToGuestAssetPaths, ComponentGraph, Config, WorldOrMachineComponent};
-use anyhow::{bail, Result};
-use std::borrow::Cow;
-use std::path::{Path, PathBuf};
+use crate::{ComponentGraph, Config, WorldOrMachineComponent};
+use anyhow::Result;
+use std::path::Path;
 
+use crate::containers::Container;
 use crate::types::MachineName;
 
 pub struct System {
@@ -72,12 +72,28 @@ impl System {
                     println!("machine: {machine:?}");
                     let provider = match &machine.provider {
                         crate::config::MachineProvider::Container(cont_prov_cfg) => {
-                            MachineProvider::Container(ContainerMachineProvider {
-                                image: cont_prov_cfg.image.clone(),
-                                containerfile: cont_prov_cfg.containerfile.clone(),
-                                context: cont_prov_cfg.context.clone(),
-                                assets: Some(machine.base.assets),
-                            })
+                            // This is not great, not sure which way I want to fix this yet.
+                            let mut container = Container::new();
+                            if let Some(ref image) = cont_prov_cfg.image {
+                                container.set_image(image);
+                            };
+                            if let Some(ref containerfile) = cont_prov_cfg.containerfile {
+                                container.set_containerfile(containerfile);
+                            };
+                            if let Some(ref context) = cont_prov_cfg.context {
+                                container.set_context(context);
+                            };
+                            if !machine.base.assets.is_empty() {
+                                let mounts = machine.base.assets.as_ref().iter().map(|asset| {
+                                    (asset.0.to_str().unwrap(), asset.1.to_str().unwrap())
+                                });
+                                container.set_mounts(mounts);
+                            };
+                            // TODO: get this from bin once bin is optional and plumbed through
+                            if let Some(ref cmd) = None::<Vec<String>> {
+                                container.set_cmd(cmd);
+                            };
+                            MachineProvider::Container(ContainerMachineProvider { container })
                         }
                         _ => todo!("provider not yet supported"),
                     };
@@ -151,50 +167,16 @@ impl MachineProvider {
 }
 
 pub struct ContainerMachineProvider {
-    image: Option<String>,
-    containerfile: Option<PathBuf>,
-    context: Option<PathBuf>,
-    assets: Option<HostToGuestAssetPaths>,
+    container: Container,
 }
 
 impl ContainerMachineProvider {
     pub async fn build(&mut self) -> Result<()> {
-        match (&self.image, &self.containerfile, &self.context) {
-            (Some(image_name), None, None) => {
-                crate::containers::build_image_from_name(image_name).await
-            }
-            (Some(image_name), Some(containerfile_path), None) => {
-                crate::containers::build_image_from_containerfile(
-                    image_name,
-                    containerfile_path.to_path_buf(),
-                )
-                .await
-            }
-            (Some(_), Some(_containerfile_path), Some(_)) => {
-                todo!("build named container file with seperate context")
-            }
-            (Some(_), None, Some(_)) => todo!("build named container from context"),
-            (None, Some(_containerfile_path), None) => todo!("build unnamed containerfile"),
-            (None, Some(_containerfile_path), Some(_)) => {
-                todo!("build unnamed container from containerfile with seperate context")
-            }
-            (None, None, Some(_)) => {
-                todo!("build unnamed container from context")
-            }
-            (None, None, None) => bail!("none of `image`, `containerfile`, or `context` provided"),
-        }
+        self.container.build().await
     }
 
     pub async fn start(&mut self) -> Result<()> {
-        let image = match (&self.image, &self.containerfile, &self.context) {
-            (Some(image_name), None, None) => Cow::Borrowed(image_name),
-            (Some(image_name), Some(_), _) | (Some(image_name), _, Some(_)) => {
-                Cow::Owned(format!("conductor/{image_name}"))
-            }
-            (None, _, _) => todo!("figure out starting images without names"),
-        };
-
-        crate::containers::start_container_from_image(&image, self.assets.as_ref()).await
+        self.container.run().await
     }
 }
 
@@ -237,10 +219,7 @@ mod tests {
             machines: vec![Machine {
                 _name: MachineName::new_canonicalize("fake-machine").unwrap(),
                 provider: MachineProvider::Container(ContainerMachineProvider {
-                    image: Some("docker.io/ubuntu:latest".to_string()),
-                    containerfile: None,
-                    context: None,
-                    assets: Default::default(),
+                    container: Container::new().with_image("docker.io/ubuntu:latest"),
                 }),
             }],
         };
