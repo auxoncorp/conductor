@@ -1,324 +1,266 @@
-use crate::types::HostToGuestAssetPaths;
 use anyhow::{anyhow, Context, Result};
 use bollard::{
     container,
-    container::RemoveContainerOptions,
-    exec::{CreateExecOptions, StartExecResults},
     image::{BuildImageOptions, CreateImageOptions},
     models::{Mount, MountTypeEnum},
     Docker,
 };
-use futures_util::{StreamExt, TryStreamExt};
+use futures_util::StreamExt;
 use std::collections::HashMap;
 use std::default::Default;
-use std::path::PathBuf;
-use tracing::{error, instrument, trace};
+use std::path::{Path, PathBuf};
+use tracing::{instrument, trace};
 
-#[instrument]
-pub async fn run_in_container(
-    image: impl AsRef<str> + std::fmt::Debug,
-    command: Vec<&str>,
-) -> Result<()> {
-    let client =
-        Docker::connect_with_local_defaults().context("connect to container system service")?;
+type ContainerClient = Docker;
 
-    let image_response = client
-        .create_image(
-            Some(CreateImageOptions {
-                from_image: image.as_ref(),
-                ..Default::default()
-            }),
-            None,
-            None,
-        )
-        .try_collect::<Vec<_>>()
-        .await
-        .context("fetch image from remote container registry")?;
+#[derive(Debug, Default)]
+pub struct Container {
+    image: Option<String>,
+    containerfile: Option<PathBuf>,
+    context: Option<PathBuf>,
+    cmd: Option<Vec<String>>,
+    mounts: Option<HashMap<String, String>>,
+}
 
-    trace!(?image_response, "created image");
+pub enum ContainerState {
+    Defined,
+    Built,
+    Running,
+}
 
-    let container_config = container::Config {
-        image: Some(image.as_ref()),
-        tty: Some(true),
-        ..Default::default()
-    };
-    let container = client
-        .create_container::<&str, &str>(None, container_config)
-        .await?;
+// builder-ish things
+impl Container {
+    pub fn set_image(&mut self, image: impl AsRef<str>) {
+        self.image = Some(image.as_ref().to_string());
+    }
+    pub fn with_image(mut self, image: impl AsRef<str>) -> Self {
+        self.set_image(image);
 
-    trace!(?container, "created container");
-
-    client
-        .start_container::<String>(&container.id, None)
-        .await?;
-
-    trace!("started container");
-
-    let exec = client
-        .create_exec(
-            &container.id,
-            CreateExecOptions {
-                attach_stdout: Some(true),
-                attach_stderr: Some(true),
-                cmd: Some(command),
-                ..Default::default()
-            },
-        )
-        .await?;
-
-    trace!(?exec, "container exec created");
-
-    if let StartExecResults::Attached {
-        mut output,
-        input: _,
-    } = client.start_exec(&exec.id, None).await?
-    {
-        trace!("container exec started");
-        while let Some(Ok(msg)) = output.next().await {
-            print!("{msg}");
-        }
-    } else {
-        error!("failed to attach to container");
-        panic!();
+        self
     }
 
-    client
-        .remove_container(
-            &container.id,
-            Some(RemoveContainerOptions {
-                force: true,
-                ..Default::default()
-            }),
-        )
-        .await?;
+    pub fn set_containerfile(&mut self, containerfile: impl AsRef<Path>) {
+        self.containerfile = Some(containerfile.as_ref().to_path_buf());
+    }
+    pub fn with_containerfile(mut self, containerfile: impl AsRef<Path>) -> Self {
+        self.set_containerfile(containerfile);
 
-    Ok(())
-}
-
-#[instrument]
-pub async fn build_image_from_name(image: impl AsRef<str> + std::fmt::Debug) -> Result<()> {
-    let client =
-        Docker::connect_with_local_defaults().context("connect to container system service")?;
-
-    let image_response = client
-        .create_image(
-            Some(CreateImageOptions {
-                from_image: image.as_ref(),
-                ..Default::default()
-            }),
-            None,
-            None,
-        )
-        .try_collect::<Vec<_>>()
-        .await
-        .context("fetch image from remote container registry")?;
-
-    trace!(?image_response, "created image");
-
-    let container_config = container::Config {
-        image: Some(image.as_ref()),
-        tty: Some(true),
-        ..Default::default()
-    };
-    let container = client
-        .create_container::<&str, &str>(None, container_config)
-        .await?;
-
-    trace!(?container, "created container");
-
-    Ok(())
-}
-
-#[instrument]
-pub async fn build_official_local_image(name: &str) -> Result<()> {
-    let image_context_dir = {
-        // HACK: only supports repo-local images
-        let mut path: PathBuf = env!("CARGO_MANIFEST_DIR").into();
-        path.pop();
-        path.push("images/");
-        path.push(name);
-        trace!("image context: {}", path.display());
-        path
-    };
-
-    build_image_from_context(name, image_context_dir).await
-}
-
-#[instrument]
-pub async fn build_image_from_containerfile(name: &str, containerfile: PathBuf) -> Result<()> {
-    let tarball_bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
-        // TODO: stream tarball
-        let mut tarball = tar::Builder::new(Vec::new());
-
-        let containerfile_file_name = containerfile
-            .file_name()
-            .ok_or(anyhow!("containerfile does not name a file"))?
-            .to_os_string();
-
-        tarball
-            .append_path_with_name(containerfile, containerfile_file_name)
-            .context("build in-memory image tarball")
-            .unwrap();
-
-        tarball
-            .into_inner()
-            .context("finish in-memory image tarball")
-    })
-    .await
-    .context("spawn blocking tokio task to build tarball")??;
-
-    let image_name = format!("conductor/{}", name);
-
-    build_image_from_tar(&image_name, tarball_bytes).await
-}
-
-#[instrument]
-pub async fn build_image_from_context(name: &str, context: PathBuf) -> Result<()> {
-    trace!(?context, "build image");
-    let tarball_bytes = tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
-        // TODO: stream tarball
-        let mut tarball = tar::Builder::new(Vec::new());
-        tarball
-            .append_dir_all(".", context)
-            .context("build in-memory image tarball")
-            .unwrap();
-
-        tarball
-            .into_inner()
-            .context("finish in-memory image tarball")
-    })
-    .await
-    .context("spawn blocking tokio task to build tarball")??;
-
-    let image_name = format!("conductor/{}", name);
-
-    build_image_from_tar(&image_name, tarball_bytes).await
-}
-
-#[instrument(skip(tarball))]
-pub async fn build_image_from_tar(name: &str, tarball: Vec<u8>) -> Result<()> {
-    let client =
-        Docker::connect_with_local_defaults().context("connect to container system service")?;
-
-    let image_options = BuildImageOptions {
-        dockerfile: "Containerfile",
-        t: name,
-        labels: [
-            ("io.auxon.conductor", ""),
-            ("io.auxon.conductor.universe", "Foo"),
-            ("io.auxon.conductor.image-context-hash", "ABCDEF01"),
-        ]
-        .into(),
-        ..Default::default()
-    };
-
-    let mut build_image_progress = client.build_image(image_options, None, Some(tarball.into()));
-
-    // receive progress reports on image being built
-    while let Some(progress) = build_image_progress.next().await {
-        //trace!(?response, "build image progress");
-        if let Some(msg) = progress?.stream {
-            // TODO: print in the CLI handler
-            print!("{}", msg);
-        }
+        self
     }
 
-    trace!("image built");
+    pub fn set_context(&mut self, context: impl AsRef<Path>) {
+        self.context = Some(context.as_ref().to_path_buf());
+    }
+    pub fn with_context(mut self, context: impl AsRef<Path>) -> Self {
+        self.set_context(context);
 
-    Ok(())
+        self
+    }
+
+    pub fn set_cmd(&mut self, cmd: impl IntoIterator<Item = impl AsRef<str>>) {
+        self.cmd = Some(cmd.into_iter().map(|a| a.as_ref().to_string()).collect());
+    }
+    pub fn with_cmd(mut self, cmd: impl IntoIterator<Item = impl AsRef<str>>) -> Self {
+        self.set_cmd(cmd);
+
+        self
+    }
+
+    pub fn set_mounts(
+        &mut self,
+        mounts: impl IntoIterator<Item = (impl AsRef<str>, impl AsRef<str>)>,
+    ) {
+        let mounts = HashMap::from_iter(
+            mounts
+                .into_iter()
+                .map(|(k, v)| (k.as_ref().to_string(), v.as_ref().to_string())),
+        );
+        self.mounts = Some(mounts);
+    }
+    pub fn with_mounts(
+        mut self,
+        mounts: impl IntoIterator<Item = (impl AsRef<str>, impl AsRef<str>)>,
+    ) -> Self {
+        self.set_mounts(mounts);
+
+        self
+    }
 }
 
-#[instrument]
-pub async fn start_container_from_image(
-    image: &str,
-    mounts: Option<&HostToGuestAssetPaths>,
-) -> Result<()> {
-    let client =
-        Docker::connect_with_local_defaults().context("connect to container system service")?;
+impl Container {
+    pub fn new() -> Container {
+        Default::default()
+    }
 
-    let mounts = mounts.map(|some_mounts| {
-        some_mounts
-            .iter()
-            .map(|(host_path, container_path)| Mount {
-                source: Some(host_path.to_str().unwrap().to_string()),
-                target: Some(container_path.to_str().unwrap().to_string()),
+    pub fn from_internal_image(image: &str) -> Container {
+        let image_context_dir = {
+            // HACK: only supports repo-local images
+            let mut path: PathBuf = env!("CARGO_MANIFEST_DIR").into();
+            path.pop();
+            path.push("images/");
+            path.push(image);
+            trace!("image context: {}", path.display());
+            path
+        };
+
+        Self::new()
+            .with_image(format!("conductor/{image}"))
+            .with_context(image_context_dir)
+    }
+
+    async fn client(&self) -> ContainerClient {
+        Docker::connect_with_local_defaults()
+            .context("connect to container system service")
+            .unwrap()
+    }
+
+    async fn build_context_tar(&mut self) -> Result<Vec<u8>> {
+        let containerfile = self.containerfile.clone();
+        let context = self.context.clone();
+
+        // TODO: stream files from FS, taring in flight, don't block
+        tokio::task::spawn_blocking(move || -> Result<Vec<u8>> {
+            let mut tarball = tar::Builder::new(Vec::new());
+
+            if let Some(containerfile) = containerfile {
+                let containerfile_file_name = containerfile
+                    .file_name()
+                    .ok_or(anyhow!("containerfile does not name a file"))?
+                    .to_os_string();
+
+                tarball
+                    .append_path_with_name(containerfile, containerfile_file_name)
+                    .context("build in-memory image tarball")
+                    .unwrap();
+            }
+
+            if let Some(context) = context {
+                tarball
+                    .append_dir_all(".", context)
+                    .context("build in-memory image tarball")
+                    .unwrap();
+            }
+
+            // TODO: decide what should happen if `containerfile` is set and `context` has
+            // containerfile
+
+            tarball
+                .into_inner()
+                .context("finish in-memory image tarball")
+        })
+        .await
+        .context("spawn blocking tokio task to build tarball")?
+    }
+
+    #[instrument]
+    pub async fn build(&mut self) -> Result<()> {
+        trace!("get client");
+        let client = self.client().await;
+        trace!("got client");
+
+        // TODO.pb: resolve system state to figure out if build needs to happen
+
+        if self.containerfile.is_some() || self.context.is_some() {
+            let image_options = BuildImageOptions {
+                dockerfile: "Containerfile",
+                t: &self.image.clone().unwrap_or_default(),
+                labels: [
+                    ("io.auxon.conductor", ""),
+                    ("io.auxon.conductor.universe", "Foo"),
+                    ("io.auxon.conductor.image-context-hash", "ABCDEF01"),
+                ]
+                .into(),
                 ..Default::default()
-            })
-            .collect()
-    });
+            };
 
-    // TODO: do create in build, depends on somehow associating containers between runs
-    let container_config = container::Config {
-        image: Some(image),
-        tty: Some(true),
-        host_config: Some(bollard::models::HostConfig {
-            mounts,
-            ..Default::default()
-        }),
-        ..Default::default()
-    };
-    let container = client
-        .create_container::<&str, &str>(None, container_config)
-        .await?;
+            let tarball = self.build_context_tar().await?;
 
-    trace!(?container, "created container");
+            let mut build_image_progress =
+                client.build_image(image_options, None, Some(tarball.into()));
 
-    client
-        .start_container::<String>(&container.id, None)
-        .await?;
+            // receive progress reports on image being built
+            while let Some(progress) = build_image_progress.next().await {
+                //trace!(?response, "build image progress");
+                if let Some(msg) = progress?.stream {
+                    // TODO: print in the CLI handler
+                    print!("{}", msg);
+                }
+            }
 
-    trace!("container started");
-
-    Ok(())
-}
-
-#[instrument]
-pub async fn start_container_from_image_with_command(
-    image: &str,
-    command: Vec<&str>,
-    mounts: Option<HashMap<&str, &str>>,
-) -> Result<()> {
-    let client =
-        Docker::connect_with_local_defaults().context("connect to container system service")?;
-
-    trace!("create container");
-
-    let mounts = mounts.map(|some_mounts| {
-        some_mounts
-            .iter()
-            .map(|(host_path, container_path)| Mount {
-                typ: Some(MountTypeEnum::BIND),
-                source: Some(host_path.to_string()),
-                target: Some(container_path.to_string()),
+            trace!("image built");
+        } else if let Some(ref image) = self.image {
+            let image_options = CreateImageOptions {
+                from_image: image.as_str(),
                 ..Default::default()
-            })
-            .collect()
-    });
+            };
 
-    // TODO: do create in build, depends on somehow associating containers between runs
-    let container_config = container::Config {
-        image: Some(image),
-        tty: Some(true),
-        cmd: Some(command),
-        host_config: Some(bollard::models::HostConfig {
-            mounts,
+            trace!(?image_options, "create image");
+            let mut create_image_progress = client.create_image(Some(image_options), None, None);
+
+            // receive progress reports on image being built
+            while let Some(progress) = create_image_progress.next().await {
+                //trace!(?response, "build image progress");
+                // TODO: print in the CLI handler
+                print!("{:?}", progress);
+            }
+        }
+
+        trace!("image created");
+
+        // TODO: create container at build time
+
+        Ok(())
+    }
+
+    #[instrument]
+    pub async fn run(&mut self) -> Result<()> {
+        let client = self.client().await;
+
+        // TODO.pb: add metadata when creating container
+        // TODO.pb: check if this is already running based on metadata of running containers
+        // TODO.pb: move to build after ^
+
+        let image = self.image.as_deref();
+
+        let mounts = self.mounts.as_ref().map(|some_mounts| {
+            some_mounts
+                .iter()
+                .map(|(host_path, container_path)| Mount {
+                    source: Some(host_path.as_str().to_string()),
+                    target: Some(container_path.as_str().to_string()),
+                    typ: Some(MountTypeEnum::BIND),
+                    ..Default::default()
+                })
+                .collect()
+        });
+
+        let cmd = self
+            .cmd
+            .as_ref()
+            .map(|some_cmd| some_cmd.iter().map(|arg| arg.as_str()).collect());
+
+        let container_config = container::Config {
+            image,
+            cmd,
+            tty: Some(true),
+            host_config: Some(bollard::models::HostConfig {
+                mounts,
+                ..Default::default()
+            }),
             ..Default::default()
-        }),
-        ..Default::default()
-    };
-    let container = client
-        .create_container::<&str, &str>(None, container_config)
-        .await?;
+        };
+        let container = client
+            .create_container::<&str, _>(None, container_config)
+            .await?;
 
-    trace!(?container, "created container");
+        trace!(?container, "created container");
 
-    client
-        .start_container::<String>(&container.id, None)
-        .await?;
+        client
+            .start_container::<String>(&container.id, None)
+            .await?;
 
-    trace!("container started");
-
-    Ok(())
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -329,44 +271,12 @@ mod tests {
 
     #[tokio::test]
     #[traced_test]
-    async fn find_image() -> Result<()> {
-        use bollard::image::SearchImagesOptions;
-
-        const IMAGE: &str = "debian";
-        const TAG: &str = "bullseye";
-
-        let client = Docker::connect_with_local_defaults()?;
-
-        let images = client.list_images::<&str>(None).await?;
-        trace!("local images: {images:#?}");
-
-        let image = client.inspect_image("ubuntu1").await;
-        trace!("ubuntu image: {image:#?}");
-
-        let search_options = SearchImagesOptions {
-            term: "docker.io/rust",
-            ..Default::default()
-        };
-        let searched_images = client.search_images(search_options).await;
-        trace!("searched images: {searched_images:#?}");
-
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn hello_world() -> Result<()> {
-        const IMAGE: &str = "docker.io/ubuntu:latest";
-
-        run_in_container(IMAGE, vec!["uname", "-a"]).await
-    }
-
-    #[tokio::test]
-    #[traced_test]
-    async fn official_image() -> Result<()> {
+    async fn internal_image() -> Result<()> {
         const IMAGE: &str = "renode";
 
-        build_official_local_image(IMAGE).await
+        let mut container = Container::from_internal_image(IMAGE);
+
+        container.build().await
     }
 
     #[tokio::test]
@@ -377,7 +287,11 @@ mod tests {
         let containerfile = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../test_resources/systems/single-container-machine/Containerfile");
 
-        build_image_from_containerfile(IMAGE, containerfile).await
+        let mut container = Container::new()
+            .with_image(IMAGE)
+            .with_containerfile(containerfile);
+
+        container.build().await
     }
 
     #[tokio::test]
@@ -388,7 +302,9 @@ mod tests {
         let context = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../test_resources/systems/single-container-machine/");
 
-        build_image_from_context(IMAGE, context).await
+        let mut container = Container::new().with_image(IMAGE).with_context(context);
+
+        container.build().await
     }
 
     #[tokio::test]
@@ -396,12 +312,11 @@ mod tests {
     async fn command_in_container_from_image() -> Result<()> {
         const IMAGE: &str = "renode";
 
-        // ensure local image is built
-        build_official_local_image(IMAGE).await?;
+        let mut container = Container::from_internal_image(IMAGE).with_cmd(["whoami"]);
 
-        // TODO: come up with a standard way to reference images
-        start_container_from_image_with_command(&format!("conductor/{IMAGE}"), vec!["whoami"], None)
-            .await
+        container.build().await?;
+
+        container.run().await
     }
 
     #[tokio::test]
@@ -409,20 +324,24 @@ mod tests {
     async fn command_in_container_with_mount() -> Result<()> {
         const IMAGE: &str = "docker.io/ubuntu:latest";
 
-        // ensure local image is built
-        build_image_from_name(IMAGE).await?;
-
         let c = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../test_resources/systems/single-container-machine/");
         let cc = c.canonicalize().unwrap();
         let sc = cc.as_os_str().to_str().unwrap();
 
-        // TODO: test that the command succeded
-        start_container_from_image_with_command(
-            IMAGE,
-            vec!["/app/application.sh"],
-            Some(HashMap::from([(sc, "/app/")])),
-        )
-        .await
+        let mut container = Container::new()
+            .with_image(IMAGE)
+            .with_cmd(["/app/application.sh"])
+            .with_mounts([(sc, "/app/")]);
+
+        container.build().await?;
+
+        container.run().await?;
+
+        // TODO.pb: verify application ran automatically?
+
+        // TODO.pb: `container.stop()` && `container.rm()` (or whatever) once that's a thing
+
+        Ok(())
     }
 }
