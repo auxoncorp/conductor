@@ -14,7 +14,7 @@ use tracing::{instrument, trace};
 type ContainerClient = Docker;
 
 #[derive(Debug, Default)]
-pub struct Container {
+pub struct ContainerBuilder {
     name: Option<String>,
     image: Option<String>,
     containerfile: Option<PathBuf>,
@@ -25,14 +25,29 @@ pub struct Container {
     gpu_cap: bool,
 }
 
+#[derive(Debug, Default)]
+pub struct Container {
+    name: Option<String>,
+    state: ContainerState,
+    image: Option<String>,
+    containerfile: Option<PathBuf>,
+    context: Option<PathBuf>,
+    cmd: Option<Vec<String>>,
+    mounts: Option<HashMap<String, String>>,
+    env: Option<Vec<String>>,
+    gpu_cap: bool,
+}
+
+#[derive(Debug, Default)]
 pub enum ContainerState {
+    #[default]
     Defined,
     Built,
     Running,
 }
 
 // builder-ish things
-impl Container {
+impl ContainerBuilder {
     pub fn set_name(&mut self, name: impl AsRef<str>) {
         self.name = Some(name.as_ref().to_string());
     }
@@ -122,14 +137,28 @@ impl Container {
 
         self
     }
+
+    pub async fn resolve(self) -> Result<Container> {
+        Ok(Container {
+            name: self.name,
+            state: ContainerState::Defined,
+            image: self.image,
+            containerfile: self.containerfile,
+            context: self.context,
+            cmd: self.cmd,
+            mounts: self.mounts,
+            env: self.env,
+            gpu_cap: self.gpu_cap,
+        })
+    }
 }
 
 impl Container {
-    pub fn new() -> Container {
+    pub fn builder() -> ContainerBuilder {
         Default::default()
     }
 
-    pub fn from_internal_image(image: &str) -> Container {
+    pub fn from_internal_image(image: &str) -> ContainerBuilder {
         let image_context_dir = {
             // HACK: only supports repo-local images
             let mut path: PathBuf = env!("CARGO_MANIFEST_DIR").into();
@@ -140,7 +169,7 @@ impl Container {
             path
         };
 
-        Self::new()
+        Self::builder()
             .with_image(format!("conductor/{image}"))
             .with_context(image_context_dir)
     }
@@ -336,7 +365,7 @@ mod tests {
     async fn internal_image() -> Result<()> {
         const IMAGE: &str = "renode";
 
-        let mut container = Container::from_internal_image(IMAGE);
+        let mut container = Container::from_internal_image(IMAGE).resolve().await?;
 
         container.build().await
     }
@@ -349,9 +378,11 @@ mod tests {
         let containerfile = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../test_resources/systems/single-container-machine/Containerfile");
 
-        let mut container = Container::new()
+        let mut container = Container::builder()
             .with_image(IMAGE)
-            .with_containerfile(containerfile);
+            .with_containerfile(containerfile)
+            .resolve()
+            .await?;
 
         container.build().await
     }
@@ -364,7 +395,11 @@ mod tests {
         let context = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../test_resources/systems/single-container-machine/");
 
-        let mut container = Container::new().with_image(IMAGE).with_context(context);
+        let mut container = Container::builder()
+            .with_image(IMAGE)
+            .with_context(context)
+            .resolve()
+            .await?;
 
         container.build().await
     }
@@ -374,7 +409,10 @@ mod tests {
     async fn command_in_container_from_image() -> Result<()> {
         const IMAGE: &str = "renode";
 
-        let mut container = Container::from_internal_image(IMAGE).with_cmd(["whoami"]);
+        let mut container = Container::from_internal_image(IMAGE)
+            .with_cmd(["whoami"])
+            .resolve()
+            .await?;
 
         container.build().await?;
 
@@ -391,10 +429,12 @@ mod tests {
         let cc = c.canonicalize().unwrap();
         let sc = cc.as_os_str().to_str().unwrap();
 
-        let mut container = Container::new()
+        let mut container = Container::builder()
             .with_image(IMAGE)
             .with_cmd(["/app/application.sh"])
-            .with_mounts([(sc, "/app/")]);
+            .with_mounts([(sc, "/app/")])
+            .resolve()
+            .await?;
 
         container.build().await?;
 

@@ -21,21 +21,21 @@ impl System {
         }
     }
 
-    pub fn from_config(config: Config) -> Result<Self> {
+    pub async fn from_config(config: Config) -> Result<Self> {
         let mut sys = Self::from_config_no_runtime(config);
-        sys.build_runtime_containers_from_deployment()?;
+        sys.build_runtime_containers_from_deployment().await?;
         Ok(sys)
     }
 
-    pub fn try_from_config_path<P: AsRef<Path>>(path: P) -> Result<Self> {
+    pub async fn try_from_config_path<P: AsRef<Path>>(path: P) -> Result<Self> {
         let config = Config::read(path)?;
-        Self::from_config(config)
+        Self::from_config(config).await
     }
 
-    pub fn try_from_working_directory() -> Result<Self> {
+    pub async fn try_from_working_directory() -> Result<Self> {
         let config_path = conductor_config::find_config_file()?;
         let config = Config::read(config_path)?;
-        Self::from_config(config)
+        Self::from_config(config).await
     }
 
     pub fn config(&self) -> &Config {
@@ -71,23 +71,26 @@ impl System {
         Ok(deployment)
     }
 
-    pub fn build_runtime_containers_from_deployment(&mut self) -> Result<()> {
+    pub async fn build_runtime_containers_from_deployment(&mut self) -> Result<()> {
         debug_assert!(self.containers.is_empty());
         let deployment = self.deployment()?;
         for c in deployment.gazebo_containers.iter() {
-            self.containers.push(ContainerRuntime::new_gazebo_world(c));
+            self.containers
+                .push(ContainerRuntime::new_gazebo_world(c).await?);
         }
         for c in deployment.renode_containers.iter() {
             self.containers
-                .push(ContainerRuntime::new_renode_machine(c));
+                .push(ContainerRuntime::new_renode_machine(c).await?);
         }
         for c in deployment.qemu_containers.iter() {
-            self.containers.push(ContainerRuntime::new_qemu_machine(c));
+            self.containers
+                .push(ContainerRuntime::new_qemu_machine(c).await?);
         }
         for c in deployment.container_containers.iter() {
             self.containers
-                .push(ContainerRuntime::new_container_machine(c));
+                .push(ContainerRuntime::new_container_machine(c).await?);
         }
+
         Ok(())
     }
 
@@ -118,11 +121,11 @@ struct ContainerRuntime {
 }
 
 impl ContainerRuntime {
-    fn new_gazebo_world(deployment: &DeploymentContainer<GazeboWorld>) -> Self {
+    async fn new_gazebo_world(deployment: &DeploymentContainer<GazeboWorld>) -> Result<Self> {
         let name = deployment.name.clone();
         let mut cmd = deployment.args.clone();
         cmd.insert(0, deployment.command.clone());
-        let mut container = Container::new()
+        let mut container = Container::builder()
             .with_name(name.as_str())
             .with_image(deployment.world().base_image())
             .with_cmd(cmd)
@@ -136,14 +139,16 @@ impl ContainerRuntime {
                 .map(|asset| (asset.0.to_str().unwrap(), asset.1.to_str().unwrap()));
             container.set_mounts(mounts);
         };
-        Self { container }
+        Ok(Self {
+            container: container.resolve().await?,
+        })
     }
 
-    fn new_renode_machine(deployment: &DeploymentContainer<RenodeMachine>) -> Self {
+    async fn new_renode_machine(deployment: &DeploymentContainer<RenodeMachine>) -> Result<Self> {
         let name = deployment.name.clone();
         let mut cmd = deployment.args.clone();
         cmd.insert(0, deployment.command.clone());
-        let mut container = Container::new()
+        let mut container = Container::builder()
             .with_name(name.as_str())
             .with_image(deployment.base_image())
             .with_cmd(cmd)
@@ -157,14 +162,16 @@ impl ContainerRuntime {
                 .map(|asset| (asset.0.to_str().unwrap(), asset.1.to_str().unwrap()));
             container.set_mounts(mounts);
         };
-        Self { container }
+        Ok(Self {
+            container: container.resolve().await?,
+        })
     }
 
-    fn new_qemu_machine(deployment: &DeploymentContainer<QemuMachine>) -> Self {
+    async fn new_qemu_machine(deployment: &DeploymentContainer<QemuMachine>) -> Result<Self> {
         let name = deployment.name.clone();
         let mut cmd = deployment.args.clone();
         cmd.insert(0, deployment.command.clone());
-        let mut container = Container::new()
+        let mut container = Container::builder()
             .with_name(name.as_str())
             .with_image(deployment.machine().base_image())
             .with_cmd(cmd)
@@ -178,15 +185,19 @@ impl ContainerRuntime {
                 .map(|asset| (asset.0.to_str().unwrap(), asset.1.to_str().unwrap()));
             container.set_mounts(mounts);
         };
-        Self { container }
+        Ok(Self {
+            container: container.resolve().await?,
+        })
     }
 
-    fn new_container_machine(deployment: &DeploymentContainer<ContainerMachine>) -> Self {
+    async fn new_container_machine(
+        deployment: &DeploymentContainer<ContainerMachine>,
+    ) -> Result<Self> {
         let name = deployment.name.clone();
         let machine = deployment.machine();
 
         // This is not great, not sure which way I want to fix this yet.
-        let mut container = Container::new();
+        let mut container = Container::builder();
         container.set_name(name.as_str());
         if let Some(ref image) = machine.provider.image {
             container.set_image(image);
@@ -211,7 +222,9 @@ impl ContainerRuntime {
             container.set_cmd(cmd);
         };
         container.set_env(&deployment.environment_variables.0);
-        Self { container }
+        Ok(Self {
+            container: container.resolve().await?,
+        })
     }
 
     pub(crate) async fn build(&mut self) -> Result<()> {
@@ -230,11 +243,12 @@ mod tests {
     use crate::types::SystemName;
     use std::collections::BTreeSet;
 
-    #[test]
-    fn get_system_from_config_path() -> Result<()> {
+    #[tokio::test]
+    async fn get_system_from_config_path() -> Result<()> {
         System::try_from_config_path(
             "../test_resources/systems/single-container-machine/conductor.toml",
-        )?;
+        )
+        .await?;
 
         Ok(())
     }
@@ -254,7 +268,10 @@ mod tests {
                 worlds: Vec::new(),
             },
             containers: vec![ContainerRuntime {
-                container: Container::new().with_image("docker.io/ubuntu:latest"),
+                container: Container::builder()
+                    .with_image("docker.io/ubuntu:latest")
+                    .resolve()
+                    .await?,
             }],
         };
 
