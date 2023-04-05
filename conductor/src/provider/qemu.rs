@@ -1,4 +1,4 @@
-use crate::{config::BaseMachine, provider::guest_machine_resource_path, types::ProviderKind};
+use crate::{config::BaseMachine, provider::guest_component_resource_path, types::ProviderKind};
 use conductor_config::QemuMachineProvider;
 use derive_more::Display;
 use std::path::PathBuf;
@@ -49,6 +49,6 @@ impl QemuMachine {
     pub(crate) fn guest_bin(&self) -> PathBuf {
         // TODO - unwrap ok, already checked by config
         let bin_file_name = self.base.bin.file_name().unwrap();
-        guest_machine_resource_path(&self.base.name).join(bin_file_name)
+        guest_component_resource_path(&self.base.name).join(bin_file_name)
     }
 }

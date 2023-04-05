@@ -1,7 +1,8 @@
 use crate::component::{Component, ComponentConnector};
 use crate::types::{
     ComponentName, ConnectionKind, ConnectionName, EnvironmentVariableKeyValuePairs,
-    HostToGuestAssetPaths, InterfaceName, MachineName, ProviderKind, SystemName, WorldName,
+    EnvironmentVariableMergeConflict, HostToGuestAssetPathMergeConflict, HostToGuestAssetPaths,
+    InterfaceName, MachineName, ProviderKind, SystemName, WorldName,
 };
 use conductor_config::{
     ConnectorPropertiesError, ContainerMachineProvider, GazeboWorldProvider,
@@ -54,6 +55,10 @@ pub enum ConfigError {
     DupWorld(WorldName),
     #[error(transparent)]
     ConnectorProperties(#[from] ConnectorPropertiesError),
+    #[error(transparent)]
+    EnvironmentVariableMergeConflict(#[from] EnvironmentVariableMergeConflict),
+    #[error(transparent)]
+    HostToGuestAssetPathMergeConflict(#[from] HostToGuestAssetPathMergeConflict),
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -78,6 +83,7 @@ pub struct Config {
 pub struct Global {
     pub name: SystemName,
     pub environment_variables: EnvironmentVariableKeyValuePairs,
+    // TODO display (else defaults to $DISPLAY when needed)
 }
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display)]
@@ -498,6 +504,8 @@ impl Config {
         let cfg = conductor_config::Config::read(&config_path)?;
         let cfg_dir = config_path.as_ref().parent();
 
+        let global = Global::from(cfg.global);
+
         let mut connections = BTreeSet::new();
         for c in cfg.connections.into_iter() {
             let c = Connection::try_from(c)?;
@@ -515,6 +523,13 @@ impl Config {
             if contains_name_already {
                 return Err(ConfigError::DupWorld(w.base.name).into());
             }
+
+            // Merge env vars
+            w.base
+                .environment_variables
+                .merge(&global.environment_variables)
+                .map_err(ConfigError::from)?;
+
             // Convert relative paths on the host to absolute, where possible
             if let Some(cfg_dir) = cfg_dir {
                 let assets = w.base.assets.0.clone();
@@ -528,7 +543,10 @@ impl Config {
                             ConfigError::NonExistentWorldAsset(host_asset, w.base.name).into()
                         );
                     }
-                    w.base.assets.0.insert(host_asset, guest_asset);
+                    w.base
+                        .assets
+                        .insert(host_asset, guest_asset)
+                        .map_err(ConfigError::from)?;
                 }
             }
             worlds.push(w);
@@ -543,6 +561,13 @@ impl Config {
             if contains_name_already {
                 return Err(ConfigError::DupMachine(m.base.name).into());
             }
+
+            // Merge env vars
+            m.base
+                .environment_variables
+                .merge(&global.environment_variables)
+                .map_err(ConfigError::from)?;
+
             // Convert relative paths on the host to absolute, where possible
             if let Some(cfg_dir) = cfg_dir {
                 if m.base.bin.is_relative() {
@@ -567,7 +592,10 @@ impl Config {
                             ConfigError::NonExistentMachineAsset(host_asset, m.base.name).into(),
                         );
                     }
-                    m.base.assets.0.insert(host_asset, guest_asset);
+                    m.base
+                        .assets
+                        .insert(host_asset, guest_asset)
+                        .map_err(ConfigError::from)?;
                 }
 
                 if let MachineProvider::Container(ref mut cmp) = m.provider {
@@ -587,7 +615,7 @@ impl Config {
         }
 
         Ok(Self {
-            global: cfg.global.into(),
+            global,
             worlds,
             machines,
             connections,

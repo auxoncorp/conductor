@@ -175,6 +175,26 @@ impl<N: Component + fmt::Display + Clone> ComponentGraph<N> {
         &self.components_by_container
     }
 
+    pub fn connections_from_component(&self, name: &ComponentName) -> BTreeSet<ConnectionName> {
+        let mut connections = BTreeSet::new();
+        if let Some(node_idx) = self.g.node_indices().find(|i| self.g[*i].name() == *name) {
+            for edge_ref in self.g.edges(node_idx) {
+                connections.insert(edge_ref.weight().name().clone());
+            }
+        }
+        connections
+    }
+
+    pub fn neighboring_components(&self, name: &ComponentName) -> BTreeSet<ComponentName> {
+        let mut neighbors = BTreeSet::new();
+        if let Some(node_idx) = self.g.node_indices().find(|i| self.g[*i].name() == *name) {
+            for neighbor_idx in self.g.neighbors_undirected(node_idx) {
+                neighbors.insert(self.g[neighbor_idx].name());
+            }
+        }
+        neighbors
+    }
+
     pub fn write_dot<W: io::Write>(
         &self,
         color: bool,

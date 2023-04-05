@@ -1,6 +1,6 @@
 use crate::{
     config::BaseMachine,
-    provider::{guest_machine_resource_path, GUEST_RESOURCES_PATH},
+    provider::{guest_component_resource_path, GUEST_RESOURCES_PATH},
     types::ProviderKind,
 };
 use conductor_config::RenodeMachineProvider;
@@ -39,7 +39,7 @@ impl RenodeMachine {
         let base = if self.guest_bin_shared {
             PathBuf::from(GUEST_RESOURCES_PATH)
         } else {
-            guest_machine_resource_path(&self.base.name)
+            guest_component_resource_path(&self.base.name)
         };
         base.join(bin_file_name)
     }
