@@ -101,8 +101,71 @@ impl ConnectionKind {
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default, AsRef, Deref, From, Into)]
 pub struct EnvironmentVariableKeyValuePairs(pub(crate) BTreeMap<String, String>);
 
+#[derive(Debug, thiserror::Error)]
+#[error("Failed to merge environment variable '{_0}={_1}', already set to '{_2}'")]
+pub struct EnvironmentVariableMergeConflict(pub String, pub String, pub String);
+
+impl EnvironmentVariableKeyValuePairs {
+    pub(crate) fn merge(&mut self, other: &Self) -> Result<(), EnvironmentVariableMergeConflict> {
+        for (k, v) in other.0.iter() {
+            self.insert(k.clone(), v.clone())?;
+        }
+        Ok(())
+    }
+
+    // TODO pick a distinct error variant for this
+    pub(crate) fn insert(
+        &mut self,
+        k: String,
+        v: String,
+    ) -> Result<(), EnvironmentVariableMergeConflict> {
+        match self.0.insert(k.clone(), v.clone()) {
+            None => Ok(()),
+            Some(prev_val) => {
+                if prev_val != v {
+                    Err(EnvironmentVariableMergeConflict(k, v, prev_val))
+                } else {
+                    Ok(())
+                }
+            }
+        }
+    }
+}
+
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default, AsRef, Deref, From, Into)]
 pub struct HostToGuestAssetPaths(pub(crate) BTreeMap<PathBuf, PathBuf>);
+
+#[derive(Debug, thiserror::Error)]
+#[error("Failed to merge host-to-guest asset '{_0:?} -> {_1:?}', already set to '{_2:?}'")]
+pub struct HostToGuestAssetPathMergeConflict(pub PathBuf, pub PathBuf, pub PathBuf);
+
+// TODO - use these methods instead of manual conflict checks in config and deployment-plan
+impl HostToGuestAssetPaths {
+    pub(crate) fn merge(&mut self, other: &Self) -> Result<(), HostToGuestAssetPathMergeConflict> {
+        for (k, v) in other.0.iter() {
+            self.insert(k.clone(), v.clone())?;
+        }
+        Ok(())
+    }
+
+    // TODO pick a distinct error variant for this
+    pub(crate) fn insert(
+        &mut self,
+        k: PathBuf,
+        v: PathBuf,
+    ) -> Result<(), HostToGuestAssetPathMergeConflict> {
+        match self.0.insert(k.clone(), v.clone()) {
+            None => Ok(()),
+            Some(prev_val) => {
+                if prev_val != v {
+                    Err(HostToGuestAssetPathMergeConflict(k, v, prev_val))
+                } else {
+                    Ok(())
+                }
+            }
+        }
+    }
+}
 
 impl From<WorldName> for ComponentName {
     fn from(value: WorldName) -> Self {

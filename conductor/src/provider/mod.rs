@@ -1,4 +1,3 @@
-use crate::types::MachineName;
 use std::path::PathBuf;
 
 pub mod container;
@@ -10,6 +9,6 @@ pub mod renode;
 /// Providers are allowed to have their own further conventions within.
 pub const GUEST_RESOURCES_PATH: &str = "/conductor_resources";
 
-pub fn guest_machine_resource_path(m: &MachineName) -> PathBuf {
-    PathBuf::from(GUEST_RESOURCES_PATH).join(m.as_str())
+pub fn guest_component_resource_path<N: AsRef<str>>(component_name: N) -> PathBuf {
+    PathBuf::from(GUEST_RESOURCES_PATH).join(component_name.as_ref())
 }

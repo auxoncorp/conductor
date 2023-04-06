@@ -7,6 +7,7 @@ pub struct GazeboWorldProvider {
     pub world_path: PathBuf,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub plugin_path: Option<PathBuf>,
+    // TODO - system_plugin vs gui_plugin paths, currently just system until we do GUI support
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resource_path: Option<PathBuf>,
     #[serde(skip_serializing_if = "Option::is_none")]
