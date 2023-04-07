@@ -96,6 +96,7 @@ fn gen_container_deployment_plan<P: AsRef<Path>, C>(
     // Why json? idk
     let plan_path = container_dir.join("plan.json");
     let plan = serde_json::to_string_pretty(&serde_json::json!({
+        "uses_host_display" : c.uses_host_display,
         "environment_variables": *c.environment_variables,
         "assets": *c.assets,
         "command": c.command,

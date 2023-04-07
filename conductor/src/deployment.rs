@@ -16,6 +16,7 @@ use std::{collections::BTreeMap, path::PathBuf, str};
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct DeploymentContainer<C> {
+    pub uses_host_display: bool,
     pub environment_variables: EnvironmentVariableKeyValuePairs,
     pub assets: HostToGuestAssetPaths,
     pub generated_guest_files: BTreeMap<PathBuf, String>,
@@ -28,6 +29,7 @@ pub struct DeploymentContainer<C> {
 impl<C> Default for DeploymentContainer<C> {
     fn default() -> Self {
         DeploymentContainer {
+            uses_host_display: false,
             environment_variables: Default::default(),
             assets: Default::default(),
             generated_guest_files: Default::default(),
@@ -125,6 +127,7 @@ impl Deployment {
                             }
 
                             gazebo_containers.push(DeploymentContainer {
+                                uses_host_display: !gw.provider.headless.unwrap_or(true),
                                 environment_variables,
                                 assets,
                                 generated_guest_files: Default::default(),
@@ -191,6 +194,10 @@ impl Deployment {
                                 renode_container.args = rm.container_args();
                             }
 
+                            if !rm.provider.cli.disable_xwt.unwrap_or(true) {
+                                renode_container.uses_host_display = true;
+                            }
+
                             renode_container.components.push(rm);
                         }
                         MachineProvider::Qemu(p) => {
@@ -208,6 +215,7 @@ impl Deployment {
                             args.push(qm.guest_bin().display().to_string());
 
                             qemu_containers.push(DeploymentContainer {
+                                uses_host_display: !qm.provider.no_graphic.unwrap_or(true),
                                 environment_variables: qm.base.environment_variables.clone(),
                                 assets,
                                 generated_guest_files: Default::default(),
@@ -226,6 +234,7 @@ impl Deployment {
                             // add path/to/guest bin to assets and args
                             // whatever we need for this kind
                             container_containers.push(DeploymentContainer {
+                                uses_host_display: false, // TODO - surface a config field for this
                                 environment_variables: cm.base.environment_variables.clone(),
                                 assets: cm.base.assets.clone(),
                                 generated_guest_files: Default::default(),
