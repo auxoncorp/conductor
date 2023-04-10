@@ -24,15 +24,17 @@ name_newtype!(InterfaceName);
 pub struct ContainerRuntimeName(String);
 
 impl ContainerRuntimeName {
+    const DELIMITER: &'static str = "___";
+
     pub(crate) fn new_single(system: &SystemName, component: &ComponentName) -> Self {
-        Self(format!("{system}::{component}"))
+        Self(format!("{system}{}{component}", Self::DELIMITER))
     }
 
     pub(crate) fn new_multi(system: &SystemName, components: &BTreeSet<ComponentName>) -> Self {
         debug_assert!(!components.is_empty());
         let mut name = format!("{system}");
         for comp in components.iter() {
-            name.push_str(&format!("___{comp}"));
+            name.push_str(&format!("{}{comp}", Self::DELIMITER));
         }
         Self(name)
     }

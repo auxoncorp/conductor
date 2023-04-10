@@ -244,11 +244,8 @@ mod tests {
                 connections: BTreeSet::new(),
                 worlds: Vec::new(),
             },
-            machines: vec![Machine {
-                _name: MachineName::new_canonicalize("fake-machine").unwrap(),
-                provider: MachineProvider::Container(ContainerMachineProvider {
-                    container: Container::new().with_image("docker.io/ubuntu:latest"),
-                }),
+            containers: vec![ContainerRuntime {
+                container: Container::new().with_image("docker.io/ubuntu:latest"),
             }],
         };
 
