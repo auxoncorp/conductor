@@ -38,9 +38,8 @@ pub async fn handle(s: opts::System) -> Result<()> {
                 output_path,
             } => {
                 let system = common.resolve_system()?;
-                let root_dir = output_path.join(system.config().global.name.as_str());
-                let graph = system.graph()?;
-                let deployment = Deployment::from_graph(&graph)?;
+                let deployment = system.deployment()?;
+                let root_dir = output_path.join(deployment.system_name.as_str());
 
                 let mut container_idx = 0;
                 for c in deployment.gazebo_containers.iter() {
@@ -63,13 +62,11 @@ pub async fn handle(s: opts::System) -> Result<()> {
         },
         opts::System::Build(Build { common }) => {
             let mut system = common.resolve_system()?;
-            system.init_self(); // TODO - see TODO in system mod
             system.build().await?;
             println!("system built");
         }
         opts::System::Start(Start { common }) => {
             let mut system = common.resolve_system()?;
-            system.init_self(); // TODO - see TODO in system mod
             system.start().await?;
             println!("system started");
         }
@@ -96,6 +93,7 @@ fn gen_container_deployment_plan<P: AsRef<Path>, C>(
     // Why json? idk
     let plan_path = container_dir.join("plan.json");
     let plan = serde_json::to_string_pretty(&serde_json::json!({
+        "name" : *c.name,
         "uses_host_display" : c.uses_host_display,
         "environment_variables": *c.environment_variables,
         "assets": *c.assets,

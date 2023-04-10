@@ -14,6 +14,11 @@ mod resc;
 const RESC_FILE_NAME: &str = "renode_script.resc";
 const COMMAND: &str = "renode";
 
+// TODO - change this
+// build it from the root for now:
+//   docker build -f images/renode/Containerfile -t 'conductor_renode:latest' images/renode/
+const DEFAULT_BASE_IMAGE: &str = "conductor_renode:latest";
+
 pub(crate) fn guest_resc_path() -> PathBuf {
     // Starts at the res root, not prefixed with a machine since
     // this provider support multi-machines per single resc file
@@ -33,6 +38,10 @@ pub struct RenodeMachine {
 }
 
 impl RenodeMachine {
+    pub(crate) fn base_image(&self) -> String {
+        DEFAULT_BASE_IMAGE.to_owned()
+    }
+
     pub(crate) fn guest_bin(&self) -> PathBuf {
         // TODO - unwrap ok, already checked by config
         let bin_file_name = self.base.bin.file_name().unwrap();

@@ -6,16 +6,26 @@ use crate::{
         qemu::QemuMachine,
         renode::{guest_resc_path, RenodeMachine, RenodeScriptGen},
     },
-    types::{EnvironmentVariableKeyValuePairs, HostToGuestAssetPaths, ProviderKind},
+    types::{
+        ComponentName, ContainerRuntimeName, EnvironmentVariableKeyValuePairs,
+        HostToGuestAssetPaths, ProviderKind, SystemName,
+    },
     Component, ComponentGraph, WorldOrMachineComponent,
 };
 use anyhow::Result;
-use std::{collections::BTreeMap, path::PathBuf, str};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::PathBuf,
+    str,
+};
 
 // TODO Error type with contextual variants probably
 
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+//#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+#[derive(Debug)]
 pub struct DeploymentContainer<C> {
+    pub name: ContainerRuntimeName,
     pub uses_host_display: bool,
     pub environment_variables: EnvironmentVariableKeyValuePairs,
     pub assets: HostToGuestAssetPaths,
@@ -26,9 +36,10 @@ pub struct DeploymentContainer<C> {
     pub components: Vec<C>,
 }
 
-impl<C> Default for DeploymentContainer<C> {
-    fn default() -> Self {
+impl<C> DeploymentContainer<C> {
+    fn empty(name: ContainerRuntimeName) -> Self {
         DeploymentContainer {
+            name,
             uses_host_display: false,
             environment_variables: Default::default(),
             assets: Default::default(),
@@ -41,16 +52,50 @@ impl<C> Default for DeploymentContainer<C> {
     }
 }
 
-#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+// NOTE: already sanity checked
+impl DeploymentContainer<GazeboWorld> {
+    pub(crate) fn world(&self) -> &GazeboWorld {
+        self.components.get(0).unwrap()
+    }
+}
+
+// NOTE: already sanity checked for consistency across multi-machine-per-container setups
+impl DeploymentContainer<RenodeMachine> {
+    pub(crate) fn base_image(&self) -> String {
+        self.components.get(0).unwrap().base_image()
+    }
+}
+
+// NOTE: already sanity checked
+impl DeploymentContainer<QemuMachine> {
+    pub(crate) fn machine(&self) -> &QemuMachine {
+        self.components.get(0).unwrap()
+    }
+}
+
+// NOTE: already sanity checked
+impl DeploymentContainer<ContainerMachine> {
+    pub(crate) fn machine(&self) -> &ContainerMachine {
+        self.components.get(0).unwrap()
+    }
+}
+
+//#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+#[derive(Debug)]
 pub struct Deployment {
+    pub system_name: SystemName,
     pub gazebo_containers: Vec<DeploymentContainer<GazeboWorld>>,
     pub renode_containers: Vec<DeploymentContainer<RenodeMachine>>,
     pub qemu_containers: Vec<DeploymentContainer<QemuMachine>>,
     pub container_containers: Vec<DeploymentContainer<ContainerMachine>>,
+    // TODO networks, host-bridges
 }
 
 impl Deployment {
-    pub fn from_graph(graph: &ComponentGraph<WorldOrMachineComponent>) -> Result<Self> {
+    pub fn from_graph(
+        system_name: SystemName,
+        graph: &ComponentGraph<WorldOrMachineComponent>,
+    ) -> Result<Self> {
         let mut gazebo_containers = Vec::new();
         let mut renode_containers = Vec::new();
         let mut qemu_containers = Vec::new();
@@ -59,7 +104,12 @@ impl Deployment {
         for container in graph.components_by_container().iter() {
             // Renode provider can have multiple machines so its fields can be merged
             // as we iterator over each machine
-            let mut renode_container: DeploymentContainer<RenodeMachine> = Default::default();
+            let rc_placeholder_name = ContainerRuntimeName::new_single(
+                &system_name,
+                container.components.iter().next().unwrap(), // TODO
+            );
+            let mut renode_container: DeploymentContainer<RenodeMachine> =
+                DeploymentContainer::empty(rc_placeholder_name);
 
             let connections = container
                 .connections
@@ -127,6 +177,10 @@ impl Deployment {
                             }
 
                             gazebo_containers.push(DeploymentContainer {
+                                name: ContainerRuntimeName::new_single(
+                                    &system_name,
+                                    component_name,
+                                ),
                                 uses_host_display: !gw.provider.headless.unwrap_or(true),
                                 environment_variables,
                                 assets,
@@ -215,6 +269,10 @@ impl Deployment {
                             args.push(qm.guest_bin().display().to_string());
 
                             qemu_containers.push(DeploymentContainer {
+                                name: ContainerRuntimeName::new_single(
+                                    &system_name,
+                                    component_name,
+                                ),
                                 uses_host_display: !qm.provider.no_graphic.unwrap_or(true),
                                 environment_variables: qm.base.environment_variables.clone(),
                                 assets,
@@ -234,6 +292,10 @@ impl Deployment {
                             // add path/to/guest bin to assets and args
                             // whatever we need for this kind
                             container_containers.push(DeploymentContainer {
+                                name: ContainerRuntimeName::new_single(
+                                    &system_name,
+                                    component_name,
+                                ),
                                 uses_host_display: false, // TODO - surface a config field for this
                                 environment_variables: cm.base.environment_variables.clone(),
                                 assets: cm.base.assets.clone(),
@@ -265,6 +327,36 @@ impl Deployment {
                 renode_container
                     .generated_guest_files
                     .insert(guest_resc_path(), str::from_utf8(&resc_content)?.to_owned());
+
+                let comp_names: BTreeSet<ComponentName> = renode_container
+                    .components
+                    .iter()
+                    .cloned()
+                    .map(|c| c.base.name.into())
+                    .collect();
+
+                renode_container.name = ContainerRuntimeName::new_multi(&system_name, &comp_names);
+
+                // TODO - using a pseudo tempdir on the host for
+                // ephemeral store of file generated for the guest so
+                // they can be treated as normal assets for now
+                //
+                // TODO use system name as part of arbitration
+                if !renode_container.generated_guest_files.is_empty() {
+                    for (guest_path, content) in renode_container.generated_guest_files.iter() {
+                        let file_name = guest_path.file_name().unwrap();
+                        let host_dir = PathBuf::from("/tmp")
+                            .join("conductor_generated_assets")
+                            .join(system_name.as_str())
+                            .join(renode_container.name.as_ref());
+                        let host_path = host_dir.join(file_name);
+                        fs::create_dir_all(&host_dir)?;
+                        fs::write(&host_path, content)?;
+                        renode_container
+                            .assets
+                            .insert(host_path, guest_path.clone())?;
+                    }
+                }
 
                 renode_containers.push(renode_container);
             }
@@ -348,6 +440,7 @@ impl Deployment {
         }
 
         Ok(Self {
+            system_name,
             gazebo_containers,
             renode_containers,
             qemu_containers,

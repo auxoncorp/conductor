@@ -15,6 +15,7 @@ type ContainerClient = Docker;
 
 #[derive(Debug, Default)]
 pub struct Container {
+    name: Option<String>,
     image: Option<String>,
     containerfile: Option<PathBuf>,
     context: Option<PathBuf>,
@@ -30,6 +31,15 @@ pub enum ContainerState {
 
 // builder-ish things
 impl Container {
+    pub fn set_name(&mut self, name: impl AsRef<str>) {
+        self.name = Some(name.as_ref().to_string());
+    }
+    pub fn with_name(mut self, name: impl AsRef<str>) -> Self {
+        self.set_name(name);
+
+        self
+    }
+
     pub fn set_image(&mut self, image: impl AsRef<str>) {
         self.image = Some(image.as_ref().to_string());
     }
@@ -250,7 +260,15 @@ impl Container {
             ..Default::default()
         };
         let container = client
-            .create_container::<&str, _>(None, container_config)
+            .create_container::<String, _>(
+                self.name
+                    .as_ref()
+                    .map(|n| container::CreateContainerOptions {
+                        name: n.clone(),
+                        ..Default::default()
+                    }),
+                container_config,
+            )
             .await?;
 
         trace!(?container, "created container");
