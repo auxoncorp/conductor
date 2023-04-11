@@ -532,6 +532,21 @@ impl Config {
 
             // Convert relative paths on the host to absolute, where possible
             if let Some(cfg_dir) = cfg_dir {
+                match &mut w.provider {
+                    WorldProvider::Gazebo(gp) => {
+                        if gp.world_path.is_relative() {
+                            gp.world_path = cfg_dir.join(gp.world_path.clone());
+                        }
+                        if !gp.world_path.exists() {
+                            return Err(ConfigError::NonExistentWorldAsset(
+                                gp.world_path.clone(),
+                                w.base.name,
+                            )
+                            .into());
+                        }
+                    }
+                }
+
                 let assets = w.base.assets.0.clone();
                 w.base.assets.0.clear();
                 for (mut host_asset, guest_asset) in assets.into_iter() {

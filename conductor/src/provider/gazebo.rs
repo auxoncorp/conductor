@@ -43,8 +43,11 @@ impl GazeboWorld {
     pub(crate) fn container_args(&self) -> Vec<String> {
         let mut args: Vec<String> = Vec::new();
         args.push("sim".to_owned());
+        // TODO - add config for "run sim on start"
+        args.push("-r".to_owned());
         if self.provider.headless.unwrap_or(false) {
-            args.push("-r".to_owned());
+            args.push("--headless-rendering".to_owned());
+            args.push("-s".to_owned());
         }
         args
     }

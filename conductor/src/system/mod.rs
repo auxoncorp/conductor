@@ -122,10 +122,12 @@ impl ContainerRuntime {
         let name = deployment.name.clone();
         let mut cmd = deployment.args.clone();
         cmd.insert(0, deployment.command.clone());
-        let mut container = Container::new();
-        container.set_name(name.as_str());
-        container.set_image(deployment.world().base_image());
-        container.set_cmd(cmd);
+        let mut container = Container::new()
+            .with_name(name.as_str())
+            .with_image(deployment.world().base_image())
+            .with_cmd(cmd)
+            .with_env(&deployment.environment_variables.0)
+            .with_gpu_cap(deployment.uses_host_display);
         if !deployment.assets.is_empty() {
             let mounts = deployment
                 .assets
@@ -141,10 +143,12 @@ impl ContainerRuntime {
         let name = deployment.name.clone();
         let mut cmd = deployment.args.clone();
         cmd.insert(0, deployment.command.clone());
-        let mut container = Container::new();
-        container.set_name(name.as_str());
-        container.set_image(deployment.base_image());
-        container.set_cmd(cmd);
+        let mut container = Container::new()
+            .with_name(name.as_str())
+            .with_image(deployment.base_image())
+            .with_cmd(cmd)
+            .with_env(&deployment.environment_variables.0)
+            .with_gpu_cap(deployment.uses_host_display);
         if !deployment.assets.is_empty() {
             let mounts = deployment
                 .assets
@@ -160,10 +164,12 @@ impl ContainerRuntime {
         let name = deployment.name.clone();
         let mut cmd = deployment.args.clone();
         cmd.insert(0, deployment.command.clone());
-        let mut container = Container::new();
-        container.set_name(name.as_str());
-        container.set_image(deployment.machine().base_image());
-        container.set_cmd(cmd);
+        let mut container = Container::new()
+            .with_name(name.as_str())
+            .with_image(deployment.machine().base_image())
+            .with_cmd(cmd)
+            .with_env(&deployment.environment_variables.0)
+            .with_gpu_cap(deployment.uses_host_display);
         if !deployment.assets.is_empty() {
             let mounts = deployment
                 .assets
@@ -204,6 +210,7 @@ impl ContainerRuntime {
         if let Some(ref cmd) = None::<Vec<String>> {
             container.set_cmd(cmd);
         };
+        container.set_env(&deployment.environment_variables.0);
         Self { container }
     }
 
