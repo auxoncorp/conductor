@@ -5,6 +5,11 @@ use std::path::PathBuf;
 
 const COMMAND: &str = "gz";
 
+// TODO - change this
+// build it from the root for now:
+//   docker build -f images/gazebo/Containerfile -t 'conductor_gazebo:latest' images/gazebo/
+const DEFAULT_BASE_IMAGE: &str = "conductor_gazebo:latest";
+
 // See https://gazebosim.org/api/transport/12.0/envvars.html
 // and https://gazebosim.org/api/gazebo/7/resources.html
 // for other vars (previously prefixed with IGN, now GZ)
@@ -27,6 +32,10 @@ pub struct GazeboWorld {
 }
 
 impl GazeboWorld {
+    pub(crate) fn base_image(&self) -> String {
+        DEFAULT_BASE_IMAGE.to_owned()
+    }
+
     pub(crate) fn container_command(&self) -> String {
         COMMAND.to_owned()
     }
@@ -34,8 +43,11 @@ impl GazeboWorld {
     pub(crate) fn container_args(&self) -> Vec<String> {
         let mut args: Vec<String> = Vec::new();
         args.push("sim".to_owned());
+        // TODO - add config for "run sim on start"
+        args.push("-r".to_owned());
         if self.provider.headless.unwrap_or(false) {
-            args.push("-r".to_owned());
+            args.push("--headless-rendering".to_owned());
+            args.push("-s".to_owned());
         }
         args
     }

@@ -1,6 +1,9 @@
 use crate::name_newtype;
 use derive_more::{AsRef, Deref, Display, From, Into};
-use std::{collections::BTreeMap, path::PathBuf};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    path::PathBuf,
+};
 
 name_newtype!(SystemName);
 
@@ -16,15 +19,24 @@ name_newtype!(MachineName);
 name_newtype!(ConnectionName);
 name_newtype!(InterfaceName);
 
-// TODO(jon@auxon.io) just a place holder/example
-// we still need a canonical repr and type
-// possibly runtime (container, etc) defined
+// TODO - this will probably need to change
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, AsRef, Deref, Display, Into)]
-pub struct MachineRuntimeId(String);
+pub struct ContainerRuntimeName(String);
 
-impl MachineRuntimeId {
-    pub fn new(system: &SystemName, machine: &MachineName) -> Self {
-        Self(format!("{system}::{machine}"))
+impl ContainerRuntimeName {
+    const DELIMITER: &'static str = "___";
+
+    pub(crate) fn new_single(system: &SystemName, component: &ComponentName) -> Self {
+        Self(format!("{system}{}{component}", Self::DELIMITER))
+    }
+
+    pub(crate) fn new_multi(system: &SystemName, components: &BTreeSet<ComponentName>) -> Self {
+        debug_assert!(!components.is_empty());
+        let mut name = format!("{system}");
+        for comp in components.iter() {
+            name.push_str(&format!("{}{comp}", Self::DELIMITER));
+        }
+        Self(name)
     }
 }
 

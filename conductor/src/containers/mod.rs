@@ -2,7 +2,7 @@ use anyhow::{anyhow, Context, Result};
 use bollard::{
     container,
     image::{BuildImageOptions, CreateImageOptions},
-    models::{Mount, MountTypeEnum},
+    models::{DeviceRequest, Mount, MountTypeEnum},
     Docker,
 };
 use futures_util::StreamExt;
@@ -15,11 +15,14 @@ type ContainerClient = Docker;
 
 #[derive(Debug, Default)]
 pub struct Container {
+    name: Option<String>,
     image: Option<String>,
     containerfile: Option<PathBuf>,
     context: Option<PathBuf>,
     cmd: Option<Vec<String>>,
     mounts: Option<HashMap<String, String>>,
+    env: Option<Vec<String>>,
+    gpu_cap: bool,
 }
 
 pub enum ContainerState {
@@ -30,6 +33,15 @@ pub enum ContainerState {
 
 // builder-ish things
 impl Container {
+    pub fn set_name(&mut self, name: impl AsRef<str>) {
+        self.name = Some(name.as_ref().to_string());
+    }
+    pub fn with_name(mut self, name: impl AsRef<str>) -> Self {
+        self.set_name(name);
+
+        self
+    }
+
     pub fn set_image(&mut self, image: impl AsRef<str>) {
         self.image = Some(image.as_ref().to_string());
     }
@@ -82,6 +94,31 @@ impl Container {
         mounts: impl IntoIterator<Item = (impl AsRef<str>, impl AsRef<str>)>,
     ) -> Self {
         self.set_mounts(mounts);
+
+        self
+    }
+
+    pub fn set_env(&mut self, env: impl IntoIterator<Item = (impl AsRef<str>, impl AsRef<str>)>) {
+        let env = Vec::from_iter(
+            env.into_iter()
+                .map(|(var, val)| format!("{}={}", var.as_ref(), val.as_ref())),
+        );
+        self.env = Some(env);
+    }
+    pub fn with_env(
+        mut self,
+        env: impl IntoIterator<Item = (impl AsRef<str>, impl AsRef<str>)>,
+    ) -> Self {
+        self.set_env(env);
+
+        self
+    }
+
+    pub fn set_gpu_cap(&mut self, gpu_cap: bool) {
+        self.gpu_cap = gpu_cap;
+    }
+    pub fn with_gpu_cap(mut self, gpu_cap: bool) -> Self {
+        self.set_gpu_cap(gpu_cap);
 
         self
     }
@@ -222,6 +259,11 @@ impl Container {
 
         let image = self.image.as_deref();
 
+        let env = self
+            .env
+            .as_ref()
+            .map(|vars| vars.iter().map(|ev| ev.as_str()).collect());
+
         let mounts = self.mounts.as_ref().map(|some_mounts| {
             some_mounts
                 .iter()
@@ -234,6 +276,13 @@ impl Container {
                 .collect()
         });
 
+        let device_requests = self.gpu_cap.then_some({
+            vec![DeviceRequest {
+                capabilities: Some(vec![vec!["gpu".to_owned()]]),
+                ..Default::default()
+            }]
+        });
+
         let cmd = self
             .cmd
             .as_ref()
@@ -243,14 +292,28 @@ impl Container {
             image,
             cmd,
             tty: Some(true),
+            env,
             host_config: Some(bollard::models::HostConfig {
+                device_requests,
+                auto_remove: Some(true), // seems useful, maybe?
+                // TODO - add real networking, expose host for easy mode for now
+                network_mode: Some("host".to_owned()),
                 mounts,
                 ..Default::default()
             }),
+            network_disabled: Some(false),
             ..Default::default()
         };
         let container = client
-            .create_container::<&str, _>(None, container_config)
+            .create_container::<String, _>(
+                self.name
+                    .as_ref()
+                    .map(|n| container::CreateContainerOptions {
+                        name: n.clone(),
+                        ..Default::default()
+                    }),
+                container_config,
+            )
             .await?;
 
         trace!(?container, "created container");

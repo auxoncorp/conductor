@@ -1,38 +1,41 @@
-use crate::{ComponentGraph, Config, WorldOrMachineComponent};
+use crate::{
+    containers::Container,
+    provider::{
+        container::ContainerMachine, gazebo::GazeboWorld, qemu::QemuMachine, renode::RenodeMachine,
+    },
+    ComponentGraph, Config, Deployment, DeploymentContainer, WorldOrMachineComponent,
+};
 use anyhow::Result;
 use std::path::Path;
 
-use crate::containers::Container;
-use crate::types::MachineName;
-
 pub struct System {
     config: Config,
-    machines: Vec<Machine>,
+    containers: Vec<ContainerRuntime>,
 }
 
 impl System {
-    #[allow(clippy::let_and_return)]
-    pub fn from_config(config: Config) -> Self {
-        let system = System {
+    pub fn from_config_no_runtime(config: Config) -> Self {
+        System {
             config,
-            machines: Vec::new(),
-        };
+            containers: Vec::new(),
+        }
+    }
 
-        // TODO(jon@auxon.io) disabled so I could run without tripping the todo!'s
-        //system.init_self();
-
-        system
+    pub fn from_config(config: Config) -> Result<Self> {
+        let mut sys = Self::from_config_no_runtime(config);
+        sys.build_runtime_containers_from_deployment()?;
+        Ok(sys)
     }
 
     pub fn try_from_config_path<P: AsRef<Path>>(path: P) -> Result<Self> {
         let config = Config::read(path)?;
-        Ok(Self::from_config(config))
+        Self::from_config(config)
     }
 
     pub fn try_from_working_directory() -> Result<Self> {
         let config_path = conductor_config::find_config_file()?;
         let config = Config::read(config_path)?;
-        Ok(Self::from_config(config))
+        Self::from_config(config)
     }
 
     pub fn config(&self) -> &Config {
@@ -62,130 +65,162 @@ impl System {
         Ok(g)
     }
 
-    // TODO.pb: This should handle conversion of all of `Config` and `System` shouldn't have a raw
-    // `Config` at all. This should also be inline in `from_config` before the creation of a
-    // `System`.
-    pub fn init_self(&mut self) {
-        for component in self.components() {
-            match component {
-                WorldOrMachineComponent::Machine(machine) => {
-                    println!("machine: {machine:?}");
-                    let provider = match &machine.provider {
-                        crate::config::MachineProvider::Container(cont_prov_cfg) => {
-                            // This is not great, not sure which way I want to fix this yet.
-                            let mut container = Container::new();
-                            if let Some(ref image) = cont_prov_cfg.image {
-                                container.set_image(image);
-                            };
-                            if let Some(ref containerfile) = cont_prov_cfg.containerfile {
-                                container.set_containerfile(containerfile);
-                            };
-                            if let Some(ref context) = cont_prov_cfg.context {
-                                container.set_context(context);
-                            };
-                            if !machine.base.assets.is_empty() {
-                                let mounts = machine.base.assets.as_ref().iter().map(|asset| {
-                                    (asset.0.to_str().unwrap(), asset.1.to_str().unwrap())
-                                });
-                                container.set_mounts(mounts);
-                            };
-                            // TODO: get this from bin once bin is optional and plumbed through
-                            if let Some(ref cmd) = None::<Vec<String>> {
-                                container.set_cmd(cmd);
-                            };
-                            MachineProvider::Container(ContainerMachineProvider { container })
-                        }
-                        _ => todo!("provider not yet supported"),
-                    };
+    pub fn deployment(&self) -> Result<Deployment> {
+        let graph = self.graph().unwrap();
+        let deployment = Deployment::from_graph(self.config.global.name.clone(), &graph)?;
+        Ok(deployment)
+    }
 
-                    let machine = Machine {
-                        _name: machine.base.name.clone(),
-                        provider,
-                    };
-
-                    self.machines.push(machine);
-                }
-                WorldOrMachineComponent::World(_world) => {
-                    todo!("build worlds?");
-                }
-            }
+    pub fn build_runtime_containers_from_deployment(&mut self) -> Result<()> {
+        debug_assert!(self.containers.is_empty());
+        let deployment = self.deployment()?;
+        for c in deployment.gazebo_containers.iter() {
+            self.containers.push(ContainerRuntime::new_gazebo_world(c));
         }
+        for c in deployment.renode_containers.iter() {
+            self.containers
+                .push(ContainerRuntime::new_renode_machine(c));
+        }
+        for c in deployment.qemu_containers.iter() {
+            self.containers.push(ContainerRuntime::new_qemu_machine(c));
+        }
+        for c in deployment.container_containers.iter() {
+            self.containers
+                .push(ContainerRuntime::new_container_machine(c));
+        }
+        Ok(())
     }
 
     pub async fn build(&mut self) -> Result<()> {
-        for machine in &mut self.machines {
-            machine.build().await?;
+        for rt in &mut self.containers {
+            rt.build().await?;
         }
 
         Ok(())
     }
 
     pub async fn start(&mut self) -> Result<()> {
-        for machine in &mut self.machines {
-            machine.start().await?;
+        for rt in &mut self.containers {
+            rt.start().await?;
         }
 
         Ok(())
     }
 }
 
-pub struct Machine {
-    _name: MachineName,
-    provider: MachineProvider,
-}
-
-impl Machine {
-    pub async fn build(&mut self) -> Result<()> {
-        self.provider.build().await
-    }
-
-    pub async fn start(&mut self) -> Result<()> {
-        self.provider.start().await
-    }
-}
-
-pub enum MachineProvider {
-    Container(ContainerMachineProvider),
-    Renode(RenodeMachineProvider),
-    Qemu(QemuMachineProvider),
-}
-
-impl MachineProvider {
-    pub async fn build(&mut self) -> Result<()> {
-        match self {
-            MachineProvider::Container(cont) => cont.build().await,
-            _ => todo!("provider type not yet supported"),
-        }
-    }
-
-    pub async fn start(&mut self) -> Result<()> {
-        match self {
-            MachineProvider::Container(cont) => cont.start().await,
-            _ => todo!("provider type not yet supported"),
-        }
-    }
-}
-
-pub struct ContainerMachineProvider {
+#[derive(Debug)]
+struct ContainerRuntime {
+    // TODO maybe flatten this if nothing else needed?
+    // name: ContainerRuntimeName,
+    // deployment: DeploymentContainer<C>
+    // ...?
     container: Container,
 }
 
-impl ContainerMachineProvider {
-    pub async fn build(&mut self) -> Result<()> {
+impl ContainerRuntime {
+    fn new_gazebo_world(deployment: &DeploymentContainer<GazeboWorld>) -> Self {
+        let name = deployment.name.clone();
+        let mut cmd = deployment.args.clone();
+        cmd.insert(0, deployment.command.clone());
+        let mut container = Container::new()
+            .with_name(name.as_str())
+            .with_image(deployment.world().base_image())
+            .with_cmd(cmd)
+            .with_env(&deployment.environment_variables.0)
+            .with_gpu_cap(deployment.uses_host_display);
+        if !deployment.assets.is_empty() {
+            let mounts = deployment
+                .assets
+                .as_ref()
+                .iter()
+                .map(|asset| (asset.0.to_str().unwrap(), asset.1.to_str().unwrap()));
+            container.set_mounts(mounts);
+        };
+        Self { container }
+    }
+
+    fn new_renode_machine(deployment: &DeploymentContainer<RenodeMachine>) -> Self {
+        let name = deployment.name.clone();
+        let mut cmd = deployment.args.clone();
+        cmd.insert(0, deployment.command.clone());
+        let mut container = Container::new()
+            .with_name(name.as_str())
+            .with_image(deployment.base_image())
+            .with_cmd(cmd)
+            .with_env(&deployment.environment_variables.0)
+            .with_gpu_cap(deployment.uses_host_display);
+        if !deployment.assets.is_empty() {
+            let mounts = deployment
+                .assets
+                .as_ref()
+                .iter()
+                .map(|asset| (asset.0.to_str().unwrap(), asset.1.to_str().unwrap()));
+            container.set_mounts(mounts);
+        };
+        Self { container }
+    }
+
+    fn new_qemu_machine(deployment: &DeploymentContainer<QemuMachine>) -> Self {
+        let name = deployment.name.clone();
+        let mut cmd = deployment.args.clone();
+        cmd.insert(0, deployment.command.clone());
+        let mut container = Container::new()
+            .with_name(name.as_str())
+            .with_image(deployment.machine().base_image())
+            .with_cmd(cmd)
+            .with_env(&deployment.environment_variables.0)
+            .with_gpu_cap(deployment.uses_host_display);
+        if !deployment.assets.is_empty() {
+            let mounts = deployment
+                .assets
+                .as_ref()
+                .iter()
+                .map(|asset| (asset.0.to_str().unwrap(), asset.1.to_str().unwrap()));
+            container.set_mounts(mounts);
+        };
+        Self { container }
+    }
+
+    fn new_container_machine(deployment: &DeploymentContainer<ContainerMachine>) -> Self {
+        let name = deployment.name.clone();
+        let machine = deployment.machine();
+
+        // This is not great, not sure which way I want to fix this yet.
+        let mut container = Container::new();
+        container.set_name(name.as_str());
+        if let Some(ref image) = machine.provider.image {
+            container.set_image(image);
+        };
+        if let Some(ref containerfile) = machine.provider.containerfile {
+            container.set_containerfile(containerfile);
+        };
+        if let Some(ref context) = machine.provider.context {
+            container.set_context(context);
+        };
+        if !machine.base.assets.is_empty() {
+            let mounts = machine
+                .base
+                .assets
+                .as_ref()
+                .iter()
+                .map(|asset| (asset.0.to_str().unwrap(), asset.1.to_str().unwrap()));
+            container.set_mounts(mounts);
+        };
+        // TODO: get this from bin once bin is optional and plumbed through
+        if let Some(ref cmd) = None::<Vec<String>> {
+            container.set_cmd(cmd);
+        };
+        container.set_env(&deployment.environment_variables.0);
+        Self { container }
+    }
+
+    pub(crate) async fn build(&mut self) -> Result<()> {
         self.container.build().await
     }
 
-    pub async fn start(&mut self) -> Result<()> {
+    pub(crate) async fn start(&mut self) -> Result<()> {
         self.container.run().await
     }
-}
-
-pub struct RenodeMachineProvider {
-    _container: ContainerMachineProvider,
-}
-
-pub struct QemuMachineProvider {
-    _container: ContainerMachineProvider,
 }
 
 #[cfg(test)]
@@ -216,11 +251,8 @@ mod tests {
                 connections: BTreeSet::new(),
                 worlds: Vec::new(),
             },
-            machines: vec![Machine {
-                _name: MachineName::new_canonicalize("fake-machine").unwrap(),
-                provider: MachineProvider::Container(ContainerMachineProvider {
-                    container: Container::new().with_image("docker.io/ubuntu:latest"),
-                }),
+            containers: vec![ContainerRuntime {
+                container: Container::new().with_image("docker.io/ubuntu:latest"),
             }],
         };
 

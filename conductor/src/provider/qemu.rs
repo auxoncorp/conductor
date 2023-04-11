@@ -7,6 +7,11 @@ use std::path::PathBuf;
 // if bin is ELF, see what kind it is
 const COMMAND: &str = "qemu-system-arm";
 
+// TODO - change this
+// build it from the root for now:
+//   docker build -f images/qemu/Containerfile -t 'conductor_qemu:latest' images/qemu/
+const DEFAULT_BASE_IMAGE: &str = "conductor_qemu:latest";
+
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display)]
 #[display(fmt = "{}:{}", "ProviderKind::Qemu", "self.base.name")]
 pub struct QemuMachine {
@@ -15,6 +20,10 @@ pub struct QemuMachine {
 }
 
 impl QemuMachine {
+    pub(crate) fn base_image(&self) -> String {
+        DEFAULT_BASE_IMAGE.to_owned()
+    }
+
     // TODO - determine this based on the bin field or explicit
     // if bin is ELF, see what kind it is
     pub(crate) fn container_command(&self) -> String {
