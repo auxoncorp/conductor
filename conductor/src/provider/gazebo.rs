@@ -45,7 +45,7 @@ impl GazeboWorld {
         args.push("sim".to_owned());
         // TODO - add config for "run sim on start"
         args.push("-r".to_owned());
-        if self.provider.headless.unwrap_or(false) {
+        if self.provider.headless.unwrap_or(true) {
             args.push("--headless-rendering".to_owned());
             args.push("-s".to_owned());
         }

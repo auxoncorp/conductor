@@ -67,7 +67,7 @@ impl System {
 
     pub fn deployment(&self) -> Result<Deployment> {
         let graph = self.graph().unwrap();
-        let deployment = Deployment::from_graph(self.config.global.name.clone(), &graph)?;
+        let deployment = Deployment::from_graph(&self.config.global, &graph)?;
         Ok(deployment)
     }
 
@@ -245,6 +245,8 @@ mod tests {
             config: Config {
                 global: Global {
                     name: SystemName::new_canonicalize("fake-system").unwrap(),
+                    display: None,
+                    xauthority: None,
                     environment_variables: Default::default(),
                 },
                 machines: Vec::new(),
