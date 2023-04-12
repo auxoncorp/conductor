@@ -85,6 +85,10 @@ pub struct Config {
 pub struct Global {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub xauthority: Option<PathBuf>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub environment_variables: BTreeMap<String, String>,
 }
@@ -214,6 +218,8 @@ mod tests {
 
     const FULL_TOML: &str = indoc! {r#"
         name = 'my system'
+        display = ':0'
+        xauthority = '/not/home/.Xauthority'
 
         [environment-variables]
         SOME_VAR = 'SOME_VAL'

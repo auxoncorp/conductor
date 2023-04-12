@@ -1,8 +1,11 @@
-use crate::component::{Component, ComponentConnector};
-use crate::types::{
-    ComponentName, ConnectionKind, ConnectionName, EnvironmentVariableKeyValuePairs,
-    EnvironmentVariableMergeConflict, HostToGuestAssetPathMergeConflict, HostToGuestAssetPaths,
-    InterfaceName, MachineName, ProviderKind, SystemName, WorldName,
+use crate::{
+    component::{Component, ComponentConnector},
+    display,
+    types::{
+        ComponentName, ConnectionKind, ConnectionName, EnvironmentVariableKeyValuePairs,
+        EnvironmentVariableMergeConflict, HostToGuestAssetPathMergeConflict, HostToGuestAssetPaths,
+        InterfaceName, MachineName, ProviderKind, SystemName, WorldName,
+    },
 };
 use conductor_config::{
     ConnectorPropertiesError, ContainerMachineProvider, GazeboWorldProvider,
@@ -12,6 +15,7 @@ use conductor_config::{
 use derive_more::{Display, From};
 use std::{
     collections::BTreeSet,
+    env,
     path::{Path, PathBuf},
 };
 
@@ -82,6 +86,8 @@ pub struct Config {
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct Global {
     pub name: SystemName,
+    pub display: Option<String>,
+    pub xauthority: Option<PathBuf>,
     pub environment_variables: EnvironmentVariableKeyValuePairs,
     // TODO display (else defaults to $DISPLAY when needed)
 }
@@ -238,6 +244,14 @@ impl From<conductor_config::Global> for Global {
                 .as_ref()
                 .and_then(SystemName::new_canonicalize)
                 .unwrap_or_default(),
+            display: value
+                .display
+                .or_else(|| env::var(display::DISPLAY_ENV_VAR).ok()),
+            xauthority: value.xauthority.or_else(|| {
+                env::var(display::XAUTHORITY_ENV_VAR)
+                    .map(PathBuf::from)
+                    .ok()
+            }),
             environment_variables: value.environment_variables.into(),
         }
     }

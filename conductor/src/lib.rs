@@ -3,6 +3,7 @@ pub mod component_graph;
 pub mod config;
 pub mod containers;
 pub mod deployment;
+pub mod display;
 pub mod provider;
 pub mod system;
 pub mod types;

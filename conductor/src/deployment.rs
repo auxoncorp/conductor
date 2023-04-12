@@ -1,5 +1,6 @@
 use crate::{
-    config::{Connection, MachineProvider, WorldProvider},
+    config::{Connection, Global, MachineProvider, WorldProvider},
+    display,
     provider::{
         container::ContainerMachine,
         gazebo::GazeboWorld,
@@ -93,13 +94,15 @@ pub struct Deployment {
 
 impl Deployment {
     pub fn from_graph(
-        system_name: SystemName,
+        global_config: &Global,
         graph: &ComponentGraph<WorldOrMachineComponent>,
     ) -> Result<Self> {
         let mut gazebo_containers = Vec::new();
         let mut renode_containers = Vec::new();
         let mut qemu_containers = Vec::new();
         let mut container_containers = Vec::new();
+
+        let system_name = global_config.name.clone();
 
         for container in graph.components_by_container().iter() {
             // Renode provider can have multiple machines so its fields can be merged
@@ -439,6 +442,60 @@ impl Deployment {
             }
         }
 
+        let at_least_one_uses_display = gazebo_containers
+            .iter()
+            .map(|c| c.uses_host_display)
+            .chain(renode_containers.iter().map(|c| c.uses_host_display))
+            .chain(qemu_containers.iter().map(|c| c.uses_host_display))
+            .chain(container_containers.iter().map(|c| c.uses_host_display))
+            .any(|uses_host_display| uses_host_display);
+
+        if at_least_one_uses_display {
+            // Setup xauth/display environement
+            let display = global_config.display.as_ref().expect("DISPLAY is required");
+            let xauthority = global_config
+                .xauthority
+                .as_ref()
+                .expect("Xauthority is required");
+
+            // We create a system-specific guest xauth file, as a ro asset
+            let guest_xauth_path = display::system_guest_xauth_file_path(&system_name);
+            let mut guest_xauth = fs::File::create(&guest_xauth_path)?;
+            display::write_guest_xauth(display, xauthority, &mut guest_xauth)?;
+
+            for (env, assets) in gazebo_containers
+                .iter_mut()
+                .filter_map(env_and_assets_for_gui_container)
+                .chain(
+                    renode_containers
+                        .iter_mut()
+                        .filter_map(env_and_assets_for_gui_container),
+                )
+                .chain(
+                    qemu_containers
+                        .iter_mut()
+                        .filter_map(env_and_assets_for_gui_container),
+                )
+                .chain(
+                    container_containers
+                        .iter_mut()
+                        .filter_map(env_and_assets_for_gui_container),
+                )
+            {
+                env.insert(display::DISPLAY_ENV_VAR.to_owned(), display.clone())?;
+                env.insert(
+                    display::XAUTHORITY_ENV_VAR.to_owned(),
+                    guest_xauth_path.display().to_string(),
+                )?;
+
+                assets.insert(
+                    PathBuf::from(display::HOST_X11_DOMAIN_SOCKET),
+                    PathBuf::from(format!("{}:ro", display::HOST_X11_DOMAIN_SOCKET)),
+                )?;
+                assets.insert(guest_xauth_path.clone(), guest_xauth_path.clone())?;
+            }
+        }
+
         Ok(Self {
             system_name,
             gazebo_containers,
@@ -447,4 +504,14 @@ impl Deployment {
             container_containers,
         })
     }
+}
+
+fn env_and_assets_for_gui_container<C>(
+    c: &mut DeploymentContainer<C>,
+) -> Option<(
+    &mut EnvironmentVariableKeyValuePairs,
+    &mut HostToGuestAssetPaths,
+)> {
+    c.uses_host_display
+        .then_some((&mut c.environment_variables, &mut c.assets))
 }

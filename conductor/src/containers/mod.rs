@@ -301,7 +301,6 @@ impl Container {
                 mounts,
                 ..Default::default()
             }),
-            network_disabled: Some(false),
             ..Default::default()
         };
         let container = client
