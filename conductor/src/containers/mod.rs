@@ -197,14 +197,23 @@ impl ContainerBuilder {
         };
 
         // lookup existing local image, if it exists
-        let images = client
-            .list_images(Some(ListImagesOptions {
-                filters: HashMap::from_iter([("label".to_string(), filters.clone())]),
-                ..Default::default()
-            }))
-            .await?;
+        let image_id =
+            if self.image.is_some() && self.context.is_none() && self.containerfile.is_none() {
+                let image_resp = client.inspect_image(self.image.as_deref().unwrap()).await;
 
-        trace!("images: {images:#?}");
+                image_resp.map(|image| image.id).ok().flatten()
+            } else {
+                let images = client
+                    .list_images(Some(ListImagesOptions {
+                        filters: HashMap::from_iter([("label".to_string(), filters.clone())]),
+                        ..Default::default()
+                    }))
+                    .await?;
+
+                images.into_iter().next().map(|i| i.id)
+            };
+
+        trace!("image: {image_id:?}");
 
         // lookup existing built container, if it exists
         let containers = client
@@ -217,9 +226,9 @@ impl ContainerBuilder {
 
         trace!("containers: {containers:#?}");
 
-        let state = if let (Some(image), Some(container)) = (images.get(0), containers.get(0)) {
+        let state = if let (Some(image), Some(container)) = (image_id, containers.get(0)) {
             ContainerState::Built {
-                image_id: image.id.clone(),
+                image_id: image,
                 container_id: container.id.clone().expect("container that exists has id"),
             }
         } else {
