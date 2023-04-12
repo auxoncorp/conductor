@@ -15,7 +15,7 @@ pub async fn handle(s: opts::System) -> Result<()> {
             };
             println!("Checking configuration file '{}'", config_path.display());
 
-            let system = System::try_from_config_path(&config_path)?;
+            let system = System::try_from_config_path(&config_path).await?;
             // TODO - rm this print at some point, probably show some summary details
             println!("{:#?}", system.config());
             let graph = system.graph()?;
@@ -27,7 +27,7 @@ pub async fn handle(s: opts::System) -> Result<()> {
                 color,
                 directed,
             } => {
-                let system = common.resolve_system()?;
+                let system = common.resolve_system().await?;
                 let components = system.components();
                 let mut stdout = std::io::stdout().lock();
                 let graph = ComponentGraph::new(components, system.config().connections.clone())?;
@@ -37,7 +37,7 @@ pub async fn handle(s: opts::System) -> Result<()> {
                 common,
                 output_path,
             } => {
-                let system = common.resolve_system()?;
+                let system = common.resolve_system().await?;
                 let deployment = system.deployment()?;
                 let root_dir = output_path.join(deployment.system_name.as_str());
 
@@ -61,12 +61,12 @@ pub async fn handle(s: opts::System) -> Result<()> {
             }
         },
         opts::System::Build(Build { common }) => {
-            let mut system = common.resolve_system()?;
+            let mut system = common.resolve_system().await?;
             system.build().await?;
             println!("system built");
         }
         opts::System::Start(Start { common }) => {
-            let mut system = common.resolve_system()?;
+            let mut system = common.resolve_system().await?;
             system.start().await?;
             println!("system started");
         }

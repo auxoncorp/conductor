@@ -116,12 +116,11 @@ pub struct CommonSystemOptions {
 }
 
 impl CommonSystemOptions {
-    pub(crate) fn resolve_system(&self) -> anyhow::Result<conductor::System> {
-        let sys = self
-            .config
-            .as_ref()
-            .map(conductor::System::try_from_config_path)
-            .unwrap_or_else(conductor::System::try_from_working_directory)?;
-        Ok(sys)
+    pub(crate) async fn resolve_system(&self) -> anyhow::Result<conductor::System> {
+        if let Some(ref config) = self.config {
+            conductor::System::try_from_config_path(config).await
+        } else {
+            conductor::System::try_from_working_directory().await
+        }
     }
 }

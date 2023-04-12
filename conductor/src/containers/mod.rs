@@ -1,20 +1,24 @@
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, bail, Context as _, Result};
 use bollard::{
-    container,
-    image::{BuildImageOptions, CreateImageOptions},
+    container::{self, ListContainersOptions},
+    image::{BuildImageOptions, CreateImageOptions, ListImagesOptions},
     models::{DeviceRequest, Mount, MountTypeEnum},
     Docker,
 };
+use data_encoding::HEXLOWER;
 use futures_util::StreamExt;
+use ring::digest::{Context, Digest, SHA256};
 use std::collections::HashMap;
 use std::default::Default;
+use std::fs::{self, File};
+use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
-use tracing::{instrument, trace};
+use tracing::{info, instrument, trace, warn};
 
 type ContainerClient = Docker;
 
 #[derive(Debug, Default)]
-pub struct Container {
+pub struct ContainerBuilder {
     name: Option<String>,
     image: Option<String>,
     containerfile: Option<PathBuf>,
@@ -25,14 +29,38 @@ pub struct Container {
     gpu_cap: bool,
 }
 
+#[derive(Debug, Default)]
+pub struct Container {
+    #[allow(unused)] // TODO
+    name: Option<String>,
+    state: ContainerState,
+    image: Option<String>,
+    containerfile: Option<PathBuf>,
+    containerfile_digest: Option<Digest>,
+    context: Option<PathBuf>,
+    context_digest: Option<Digest>,
+    cmd: Option<Vec<String>>,
+    mounts: Option<HashMap<String, String>>,
+    env: Option<Vec<String>>,
+    gpu_cap: bool,
+}
+
+#[derive(Debug, Default)]
 pub enum ContainerState {
+    #[default]
     Defined,
-    Built,
-    Running,
+    Built {
+        image_id: String,
+        container_id: String,
+    },
+    Running {
+        image_id: String,
+        container_id: String,
+    },
 }
 
 // builder-ish things
-impl Container {
+impl ContainerBuilder {
     pub fn set_name(&mut self, name: impl AsRef<str>) {
         self.name = Some(name.as_ref().to_string());
     }
@@ -122,14 +150,187 @@ impl Container {
 
         self
     }
+
+    pub async fn resolve(self) -> Result<Container> {
+        let client = Docker::connect_with_local_defaults()
+            .context("connect to container system service")?
+            .negotiate_version()
+            .await?;
+
+        trace!("negotiated version: {}", client.client_version());
+
+        let mut filters = Vec::new();
+
+        if let Some(ref image) = self.image {
+            trace!("io.auxon.conductor.image = {image}");
+
+            filters.push(format!("io.auxon.conductor.name={}", image));
+        }
+
+        let containerfile_digest = if let Some(ref containerfile) = self.containerfile {
+            let containerfile_digest = digest_for_path(containerfile)?;
+            let containerfile_digest_str = HEXLOWER.encode(containerfile_digest.as_ref());
+
+            trace!("io.auxon.conductor.containerfile = {containerfile_digest_str}");
+
+            filters.push(format!(
+                "io.auxon.conductor.containerfile={}",
+                containerfile_digest_str,
+            ));
+
+            Some(containerfile_digest)
+        } else {
+            None
+        };
+
+        let context_digest = if let Some(ref context) = self.context {
+            let context_digest = digest_for_path(context)?;
+            let context_digest_str = HEXLOWER.encode(context_digest.as_ref());
+
+            trace!("io.auxon.conductor.context = {context_digest_str}");
+
+            filters.push(format!("io.auxon.conductor.context={}", context_digest_str,));
+
+            Some(context_digest)
+        } else {
+            None
+        };
+
+        // lookup existing local image, if it exists
+        let images = client
+            .list_images(Some(ListImagesOptions {
+                filters: HashMap::from_iter([("label".to_string(), filters.clone())]),
+                ..Default::default()
+            }))
+            .await?;
+
+        trace!("images: {images:#?}");
+
+        // lookup existing built container, if it exists
+        let containers = client
+            .list_containers(Some(ListContainersOptions {
+                all: true,
+                filters: HashMap::from_iter([("label".to_string(), filters)]),
+                ..Default::default()
+            }))
+            .await?;
+
+        trace!("containers: {containers:#?}");
+
+        let state = if let (Some(image), Some(container)) = (images.get(0), containers.get(0)) {
+            ContainerState::Built {
+                image_id: image.id.clone(),
+                container_id: container.id.clone().expect("container that exists has id"),
+            }
+        } else {
+            //let images = client.list_images::<&str>(None).await?;
+            //trace!("all images: {images:#?}");
+            //let containers = client.list_containers::<&str>(None).await?;
+            //trace!("all containers: {containers:#?}");
+
+            //panic!("it shouldn't be");
+
+            ContainerState::Defined
+        };
+
+        //// inspect *local* images
+        //let image = client.inspect_image("ubuntu1").await;
+        //trace!("ubuntu image: {image:#?}");
+
+        //// Searches *remote* images
+        //let search_options = SearchImagesOptions {
+        //    term: "docker.io/rust",
+        //    ..Default::default()
+        //};
+        //let searched_images = client.search_images(search_options).await;
+        //trace!("searched images: {searched_images:#?}");
+
+        let container = Container {
+            name: self.name,
+            state,
+            image: self.image,
+            containerfile: self.containerfile,
+            containerfile_digest,
+            context: self.context,
+            context_digest,
+            cmd: self.cmd,
+            mounts: self.mounts,
+            env: self.env,
+            gpu_cap: self.gpu_cap,
+        };
+
+        Ok(container)
+    }
+}
+
+#[instrument]
+fn digest_for_path(path: &Path) -> Result<Digest> {
+    let mut context = Context::new(&SHA256);
+
+    if path.is_dir() {
+        digest_dir(&mut context, path, path)?;
+    } else if path.is_file() {
+        digest_file(&mut context, path, path)?;
+    } else {
+        bail!("path is not a directory or file");
+    }
+
+    Ok(context.finish())
+}
+
+#[instrument(skip(context))]
+fn digest_dir(context: &mut Context, dir: &Path, ref_dir: &Path) -> Result<()> {
+    // list dir
+    let mut paths = fs::read_dir(dir)?
+        .map(|res| res.map(|e| e.path()))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    // sort listing
+    paths.sort();
+
+    // digest each file
+    for ref path in paths {
+        // TODO: do I need to prevent infinite recursions? What does the tar library do?
+        if path.is_dir() {
+            digest_dir(context, path, ref_dir)?;
+        } else if path.is_file() {
+            digest_file(context, path, ref_dir)?;
+        } else {
+            bail!("path is not a directory or file");
+        }
+    }
+
+    Ok(())
+}
+
+#[instrument(skip(context))]
+fn digest_file(context: &mut Context, file: &Path, ref_dir: &Path) -> Result<()> {
+    // feed in releative (to context path) file path
+    let rel_path = file.strip_prefix(ref_dir).context("get relative path")?;
+    context.update(rel_path.to_string_lossy().as_bytes());
+
+    // feed in file contents
+    let input = File::open(file)?;
+    let mut reader = BufReader::new(input);
+    let mut buffer = [0; 1024];
+
+    loop {
+        let count = reader.read(&mut buffer)?;
+        if count == 0 {
+            break;
+        }
+        context.update(&buffer[..count]);
+    }
+
+    Ok(())
 }
 
 impl Container {
-    pub fn new() -> Container {
+    pub fn builder() -> ContainerBuilder {
         Default::default()
     }
 
-    pub fn from_internal_image(image: &str) -> Container {
+    pub fn from_internal_image(image: &str) -> ContainerBuilder {
         let image_context_dir = {
             // HACK: only supports repo-local images
             let mut path: PathBuf = env!("CARGO_MANIFEST_DIR").into();
@@ -140,7 +341,7 @@ impl Container {
             path
         };
 
-        Self::new()
+        Self::builder()
             .with_image(format!("conductor/{image}"))
             .with_context(image_context_dir)
     }
@@ -148,6 +349,9 @@ impl Container {
     async fn client(&self) -> ContainerClient {
         Docker::connect_with_local_defaults()
             .context("connect to container system service")
+            .unwrap()
+            .negotiate_version()
+            .await
             .unwrap()
     }
 
@@ -191,60 +395,193 @@ impl Container {
 
     #[instrument]
     pub async fn build(&mut self) -> Result<()> {
-        trace!("get client");
         let client = self.client().await;
-        trace!("got client");
 
-        // TODO.pb: resolve system state to figure out if build needs to happen
+        match &self.state {
+            ContainerState::Defined => {
+                let mut labels = HashMap::new();
 
-        if self.containerfile.is_some() || self.context.is_some() {
-            let image_options = BuildImageOptions {
-                dockerfile: "Containerfile",
-                t: &self.image.clone().unwrap_or_default(),
-                labels: [
-                    ("io.auxon.conductor", ""),
-                    ("io.auxon.conductor.universe", "Foo"),
-                    ("io.auxon.conductor.image-context-hash", "ABCDEF01"),
-                ]
-                .into(),
-                ..Default::default()
-            };
+                // always apply this label to everything for easy filtering of all resources
+                // TODO: use this for something? tool version? is that useful?
+                labels.insert("io.auxon.conductor", "".into());
 
-            let tarball = self.build_context_tar().await?;
-
-            let mut build_image_progress =
-                client.build_image(image_options, None, Some(tarball.into()));
-
-            // receive progress reports on image being built
-            while let Some(progress) = build_image_progress.next().await {
-                //trace!(?response, "build image progress");
-                if let Some(msg) = progress?.stream {
-                    // TODO: print in the CLI handler
-                    print!("{}", msg);
+                if let Some(ref image) = self.image {
+                    labels.insert("io.auxon.conductor.name", image.clone());
                 }
+
+                if let Some(containerfile_digest) = self.containerfile_digest {
+                    labels.insert(
+                        "io.auxon.conductor.containerfile",
+                        HEXLOWER.encode(containerfile_digest.as_ref()),
+                    );
+                }
+
+                if let Some(context_digest) = self.context_digest {
+                    labels.insert(
+                        "io.auxon.conductor.context",
+                        HEXLOWER.encode(context_digest.as_ref()),
+                    );
+                }
+
+                let labels_ref = labels.iter().map(|(k, v)| (*k, v.as_str())).collect();
+
+                let image_id = if self.containerfile.is_some() || self.context.is_some() {
+                    let image = self.image.clone().unwrap();
+                    let image_options = BuildImageOptions {
+                        dockerfile: "Containerfile",
+                        t: &image,
+                        labels: labels_ref,
+                        ..Default::default()
+                    };
+
+                    let tarball = self.build_context_tar().await?;
+
+                    let mut build_image_progress =
+                        client.build_image(image_options, None, Some(tarball.into()));
+
+                    // receive progress reports on image being built
+                    let mut image_id = None;
+                    while let Some(progress) = build_image_progress.next().await {
+                        trace!(?progress, "build image progress");
+                        let progress = progress?;
+                        if let Some(msg) = progress.stream {
+                            // TODO: print in the CLI handler
+                            print!("{}", msg);
+                        }
+
+                        if let Some(aux) = progress.aux {
+                            if let Some(id) = aux.id {
+                                info!("id: {id}");
+                                let _ = image_id.insert(id);
+                            }
+                        }
+                    }
+
+                    let Some(image_id) = image_id else {
+                        bail!("no image id reported by container service");
+                    };
+
+                    trace!(image_id, "image built");
+
+                    image_id
+                } else if let Some(ref image) = self.image {
+                    let image_options = CreateImageOptions {
+                        from_image: image.as_str(),
+                        ..Default::default()
+                    };
+
+                    trace!(?image_options, "create image");
+                    let mut create_image_progress =
+                        client.create_image(Some(image_options), None, None);
+
+                    // receive progress reports on image being built
+                    let mut image_id = None;
+                    while let Some(progress) = create_image_progress.next().await {
+                        //trace!(?progress, "create image progress");
+                        // TODO: print in the CLI handler
+                        let progress = progress?;
+                        if let Some(msg) = progress.progress {
+                            // TODO: print in the CLI handler
+                            print!("{}", msg);
+                        }
+
+                        if let Some(id) = progress.id {
+                            if id.starts_with("sha256:") {
+                                info!("id: {id}");
+                                let _ = image_id.insert(id);
+                            } else {
+                                warn!("non-id returned as ID: {id}");
+                            }
+                        }
+                    }
+
+                    // workaround: docker just reports the label (eg. "latest") as the "id", if
+                    // that's the case, just copy over the source image name
+                    let image_id = image_id.unwrap_or_else(|| image.to_string());
+
+                    trace!(image_id, "image created");
+
+                    image_id
+                } else {
+                    bail!("container without image definition")
+                };
+
+                let image = self.image.as_deref();
+
+                let env = self
+                    .env
+                    .as_ref()
+                    .map(|vars| vars.iter().map(|ev| ev.as_str()).collect());
+
+                let mounts = self.mounts.as_ref().map(|some_mounts| {
+                    some_mounts
+                        .iter()
+                        .map(|(host_path, container_path)| Mount {
+                            source: Some(host_path.as_str().to_string()),
+                            target: Some(container_path.as_str().to_string()),
+                            typ: Some(MountTypeEnum::BIND),
+                            ..Default::default()
+                        })
+                        .collect()
+                });
+
+                let device_requests = self.gpu_cap.then_some({
+                    vec![DeviceRequest {
+                        capabilities: Some(vec![vec!["gpu".to_owned()]]),
+                        ..Default::default()
+                    }]
+                });
+
+                let cmd = self
+                    .cmd
+                    .as_ref()
+                    .map(|some_cmd| some_cmd.iter().map(|arg| arg.as_str()).collect());
+
+                let labels_ref = labels.iter().map(|(k, v)| (*k, v.as_str())).collect();
+
+                let container_config = container::Config {
+                    image,
+                    cmd,
+                    tty: Some(true),
+                    env,
+                    host_config: Some(bollard::models::HostConfig {
+                        device_requests,
+                        auto_remove: Some(true), // seems useful, maybe?
+                        // TODO - add real networking, expose host for easy mode for now
+                        network_mode: Some("host".to_owned()),
+                        mounts,
+                        ..Default::default()
+                    }),
+                    labels: Some(labels_ref),
+                    ..Default::default()
+                };
+                let container = client
+                    .create_container::<&str, _>(
+                        None, // disabled until deleting works
+                        /*self.name
+                        .as_ref()
+                        .map(|n| container::CreateContainerOptions {
+                            name: n.clone(),
+                            ..Default::default()
+                        })*/
+                        container_config,
+                    )
+                    .await?;
+
+                trace!(?container, "created container");
+
+                self.state = ContainerState::Built {
+                    image_id,
+                    container_id: container.id,
+                };
             }
-
-            trace!("image built");
-        } else if let Some(ref image) = self.image {
-            let image_options = CreateImageOptions {
-                from_image: image.as_str(),
-                ..Default::default()
-            };
-
-            trace!(?image_options, "create image");
-            let mut create_image_progress = client.create_image(Some(image_options), None, None);
-
-            // receive progress reports on image being built
-            while let Some(progress) = create_image_progress.next().await {
-                //trace!(?response, "build image progress");
-                // TODO: print in the CLI handler
-                print!("{:?}", progress);
+            ContainerState::Built { .. } => {
+                trace!("image already built, nothing to build");
+            }
+            ContainerState::Running { .. } => {
+                trace!("container already running, nothing to build");
             }
         }
-
-        trace!("image created");
-
-        // TODO: create container at build time
 
         Ok(())
     }
@@ -253,73 +590,26 @@ impl Container {
     pub async fn run(&mut self) -> Result<()> {
         let client = self.client().await;
 
-        // TODO.pb: add metadata when creating container
-        // TODO.pb: check if this is already running based on metadata of running containers
-        // TODO.pb: move to build after ^
-
-        let image = self.image.as_deref();
-
-        let env = self
-            .env
-            .as_ref()
-            .map(|vars| vars.iter().map(|ev| ev.as_str()).collect());
-
-        let mounts = self.mounts.as_ref().map(|some_mounts| {
-            some_mounts
-                .iter()
-                .map(|(host_path, container_path)| Mount {
-                    source: Some(host_path.as_str().to_string()),
-                    target: Some(container_path.as_str().to_string()),
-                    typ: Some(MountTypeEnum::BIND),
-                    ..Default::default()
-                })
-                .collect()
-        });
-
-        let device_requests = self.gpu_cap.then_some({
-            vec![DeviceRequest {
-                capabilities: Some(vec![vec!["gpu".to_owned()]]),
-                ..Default::default()
-            }]
-        });
-
-        let cmd = self
-            .cmd
-            .as_ref()
-            .map(|some_cmd| some_cmd.iter().map(|arg| arg.as_str()).collect());
-
-        let container_config = container::Config {
-            image,
-            cmd,
-            tty: Some(true),
-            env,
-            host_config: Some(bollard::models::HostConfig {
-                device_requests,
-                auto_remove: Some(true), // seems useful, maybe?
-                // TODO - add real networking, expose host for easy mode for now
-                network_mode: Some("host".to_owned()),
-                mounts,
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        let container = client
-            .create_container::<String, _>(
-                self.name
-                    .as_ref()
-                    .map(|n| container::CreateContainerOptions {
-                        name: n.clone(),
-                        ..Default::default()
-                    }),
-                container_config,
-            )
-            .await?;
-
-        trace!(?container, "created container");
-
-        client
-            .start_container::<String>(&container.id, None)
-            .await?;
+        match &self.state {
+            ContainerState::Defined => {
+                // TODO: just do the build here
+                bail!("can't start unbuilt system");
+            }
+            ContainerState::Built {
+                container_id,
+                image_id: _,
+            } => {
+                trace!(container_id, "start previously built container");
+                assert!(
+                    !container_id.is_empty(),
+                    "container id can't be the empty string"
+                );
+                client.start_container::<String>(container_id, None).await?;
+            }
+            ContainerState::Running { .. } => {
+                trace!("container already running, nothing to do");
+            }
+        }
 
         Ok(())
     }
@@ -336,7 +626,7 @@ mod tests {
     async fn internal_image() -> Result<()> {
         const IMAGE: &str = "renode";
 
-        let mut container = Container::from_internal_image(IMAGE);
+        let mut container = Container::from_internal_image(IMAGE).resolve().await?;
 
         container.build().await
     }
@@ -349,9 +639,11 @@ mod tests {
         let containerfile = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../test_resources/systems/single-container-machine/Containerfile");
 
-        let mut container = Container::new()
+        let mut container = Container::builder()
             .with_image(IMAGE)
-            .with_containerfile(containerfile);
+            .with_containerfile(containerfile)
+            .resolve()
+            .await?;
 
         container.build().await
     }
@@ -364,7 +656,11 @@ mod tests {
         let context = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../test_resources/systems/single-container-machine/");
 
-        let mut container = Container::new().with_image(IMAGE).with_context(context);
+        let mut container = Container::builder()
+            .with_image(IMAGE)
+            .with_context(context)
+            .resolve()
+            .await?;
 
         container.build().await
     }
@@ -374,10 +670,15 @@ mod tests {
     async fn command_in_container_from_image() -> Result<()> {
         const IMAGE: &str = "renode";
 
-        let mut container = Container::from_internal_image(IMAGE).with_cmd(["whoami"]);
+        let mut container = Container::from_internal_image(IMAGE)
+            .with_cmd(["whoami"])
+            .resolve()
+            .await?;
 
+        info!("build");
         container.build().await?;
 
+        info!("run");
         container.run().await
     }
 
@@ -391,10 +692,12 @@ mod tests {
         let cc = c.canonicalize().unwrap();
         let sc = cc.as_os_str().to_str().unwrap();
 
-        let mut container = Container::new()
+        let mut container = Container::builder()
             .with_image(IMAGE)
             .with_cmd(["/app/application.sh"])
-            .with_mounts([(sc, "/app/")]);
+            .with_mounts([(sc, "/app/")])
+            .resolve()
+            .await?;
 
         container.build().await?;
 

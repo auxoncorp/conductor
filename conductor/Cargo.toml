@@ -26,6 +26,8 @@ tar = "0.4.38"
 petgraph = { version = "0.6", default-features = false }
 itertools = "0.10"
 colorous = "1.0"
+ring = { version = "0.16.20", features = ["std"] }
+data-encoding = "2.3.3"
 
 [dev-dependencies]
 tracing-test = "0.2"
