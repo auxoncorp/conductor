@@ -22,3 +22,5 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN wget https://github.com/renode/renode/releases/download/v1.13.3/renode_1.13.3_amd64.deb -O /renode.deb
 RUN apt-get install -y /renode.deb
+
+RUN apt-get install -y iproute2 bridge-utils

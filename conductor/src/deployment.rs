@@ -5,11 +5,12 @@ use crate::{
         container::ContainerMachine,
         gazebo::GazeboWorld,
         qemu::QemuMachine,
-        renode::{guest_resc_path, RenodeMachine, RenodeScriptGen},
+        renode::{self, guest_resc_path, RenodeMachine, RenodeScriptGen},
     },
     types::{
-        ComponentName, ContainerRuntimeName, EnvironmentVariableKeyValuePairs,
-        HostToGuestAssetPaths, ProviderKind, SystemName,
+        BridgeName, ComponentName, ConnectionKind, ConnectionName, ContainerRuntimeName,
+        EnvironmentVariableKeyValuePairs, HostToGuestAssetPaths, InterfaceName, ProviderKind,
+        SystemName, TapDevice,
     },
     Component, ComponentGraph, WorldOrMachineComponent,
 };
@@ -23,8 +24,7 @@ use std::{
 
 // TODO Error type with contextual variants probably
 
-//#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-#[derive(Debug)]
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct DeploymentContainer<C> {
     pub name: ContainerRuntimeName,
     pub uses_host_display: bool,
@@ -34,6 +34,7 @@ pub struct DeploymentContainer<C> {
     pub command: String,
     pub args: Vec<String>,
     pub connections: Vec<Connection>,
+    pub taps_to_bridges: BTreeMap<TapDevice, BridgeName>,
     pub components: Vec<C>,
 }
 
@@ -48,6 +49,7 @@ impl<C> DeploymentContainer<C> {
             command: Default::default(),
             args: Default::default(),
             connections: Vec::new(),
+            taps_to_bridges: Default::default(),
             components: Vec::new(),
         }
     }
@@ -81,7 +83,6 @@ impl DeploymentContainer<ContainerMachine> {
     }
 }
 
-//#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 #[derive(Debug)]
 pub struct Deployment {
     pub system_name: SystemName,
@@ -89,7 +90,7 @@ pub struct Deployment {
     pub renode_containers: Vec<DeploymentContainer<RenodeMachine>>,
     pub qemu_containers: Vec<DeploymentContainer<QemuMachine>>,
     pub container_containers: Vec<DeploymentContainer<ContainerMachine>>,
-    // TODO networks, host-bridges
+    pub wired_networks: BTreeSet<ConnectionName>,
 }
 
 impl Deployment {
@@ -103,6 +104,18 @@ impl Deployment {
         let mut container_containers = Vec::new();
 
         let system_name = global_config.name.clone();
+
+        let wired_networks = graph
+            .connections()
+            .iter()
+            .filter_map(|(name, c)| {
+                if c.kind() == ConnectionKind::Network {
+                    Some(name.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         for container in graph.components_by_container().iter() {
             // Renode provider can have multiple machines so its fields can be merged
@@ -191,6 +204,7 @@ impl Deployment {
                                 command: gw.container_command(),
                                 args,
                                 connections: connections.clone(),
+                                taps_to_bridges: Default::default(),
                                 components: vec![gw],
                             });
                         }
@@ -201,6 +215,10 @@ impl Deployment {
                                 guest_bin_shared: false,
                                 base: m.base,
                                 provider: p,
+                                // TODO - each network kind connection to a different
+                                // container (or host) gets a tap device
+                                // name is conn_name_tap or w/e
+                                tap_devices: Default::default(),
                             };
 
                             let found_conflicting_cli_configs = renode_container
@@ -245,6 +263,15 @@ impl Deployment {
                                     .insert(rm.base.bin.clone(), rm.guest_bin());
                             }
 
+                            for (idx, network_connection) in
+                                connections.iter().filter(|c| c.is_network()).enumerate()
+                            {
+                                rm.tap_devices.insert(
+                                    network_connection.name().clone(),
+                                    format!("renode-tap{idx}"),
+                                );
+                            }
+
                             // Stuff only needed once
                             if renode_container.components.is_empty() {
                                 renode_container.command = rm.container_command();
@@ -283,6 +310,7 @@ impl Deployment {
                                 command: qm.container_command(),
                                 args,
                                 connections: connections.clone(),
+                                taps_to_bridges: Default::default(),
                                 components: vec![qm],
                             });
                         }
@@ -306,6 +334,7 @@ impl Deployment {
                                 command: Default::default(),
                                 args: Default::default(),
                                 connections: connections.clone(),
+                                taps_to_bridges: Default::default(),
                                 components: vec![cm],
                             });
                         }
@@ -323,9 +352,74 @@ impl Deployment {
                     .args
                     .push(guest_resc_path().display().to_string());
 
+                let tap_devices: BTreeMap<ConnectionName, TapDevice> = renode_container
+                    .components
+                    .iter()
+                    .flat_map(|m| m.tap_devices.clone().into_iter())
+                    .collect();
+
+                for (tap, br) in tap_devices
+                    .iter()
+                    .map(|(conn_name, tap_dev)| {
+                        let connection_index_in_config = graph
+                            .connections()
+                            .iter()
+                            .position(|c| c.0 == conn_name)
+                            .unwrap();
+
+                        (
+                            tap_dev.clone(),
+                            InterfaceName::new_system_wired_network(connection_index_in_config),
+                        )
+                    })
+                    .collect::<BTreeMap<TapDevice, BridgeName>>()
+                {
+                    renode_container.taps_to_bridges.insert(tap, br);
+                }
+
+                if !renode_container.taps_to_bridges.is_empty() {
+                    let net_setup_guest_path = renode::guest_external_network_setup_script_path();
+                    let net_setup_content = renode::external_network_setup_script_content(
+                        &renode_container.taps_to_bridges,
+                    );
+                    renode_container
+                        .generated_guest_files
+                        .insert(net_setup_guest_path.clone(), net_setup_content);
+
+                    let net_teardown_guest_path =
+                        renode::guest_external_network_teardown_script_path();
+                    let net_teardown_content = renode::external_network_teardown_script_content(
+                        &renode_container.taps_to_bridges,
+                    );
+                    renode_container
+                        .generated_guest_files
+                        .insert(net_teardown_guest_path.clone(), net_teardown_content);
+
+                    // When we have tap/bridge scripts, we need to change the runtime
+                    // command and args to call them
+                    // We convert '<cmd> <args>' into
+                    // 'bash -c "net_setup.sh ; <cmd> <args> ; net_teardown.sh"'
+                    let mut wrapped_args: Vec<String> =
+                        std::iter::once(renode_container.command.clone())
+                            .chain(renode_container.args.iter().cloned())
+                            .collect();
+                    wrapped_args.insert(0, net_setup_guest_path.display().to_string());
+                    wrapped_args.insert(1, ";".to_owned());
+                    wrapped_args.push(";".to_owned());
+                    wrapped_args.push(net_teardown_guest_path.display().to_string());
+
+                    renode_container.command = "/bin/bash".to_owned();
+                    renode_container.args.clear();
+                    renode_container.args.push("-c".to_owned());
+                    renode_container.args.push(wrapped_args.join(" "));
+                }
+
                 let mut resc_content = Vec::new();
-                RenodeScriptGen::new(&mut resc_content)
-                    .generate(&renode_container.components, &renode_container.connections)?;
+                RenodeScriptGen::new(&mut resc_content).generate(
+                    &renode_container.components,
+                    &renode_container.connections,
+                    &tap_devices,
+                )?;
 
                 renode_container
                     .generated_guest_files
@@ -502,6 +596,7 @@ impl Deployment {
             renode_containers,
             qemu_containers,
             container_containers,
+            wired_networks,
         })
     }
 }

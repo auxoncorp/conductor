@@ -1,29 +1,25 @@
 use crate::{
     config::BaseMachine,
     provider::{guest_component_resource_path, GUEST_RESOURCES_PATH},
-    types::ProviderKind,
+    types::{BridgeName, ConnectionName, ProviderKind, TapDevice},
 };
 use conductor_config::RenodeMachineProvider;
 use derive_more::Display;
-use std::path::PathBuf;
+use std::{collections::BTreeMap, path::PathBuf};
 
 pub use resc::RenodeScriptGen;
 
 mod resc;
 
-const RESC_FILE_NAME: &str = "renode_script.resc";
 const COMMAND: &str = "renode";
+const RESC_FILE_NAME: &str = "renode_script.resc";
+const NET_SETUP_FILE_NAME: &str = "net_setup.sh";
+const NET_TEARDOWN_FILE_NAME: &str = "net_teardown.sh";
 
 // TODO - change this
 // build it from the root for now:
 //   docker build -f images/renode/Containerfile -t 'conductor_renode:latest' images/renode/
 const DEFAULT_BASE_IMAGE: &str = "conductor_renode:latest";
-
-pub(crate) fn guest_resc_path() -> PathBuf {
-    // Starts at the res root, not prefixed with a machine since
-    // this provider support multi-machines per single resc file
-    PathBuf::from(GUEST_RESOURCES_PATH).join(RESC_FILE_NAME)
-}
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display)]
 #[display(fmt = "{}:{}", "ProviderKind::Renode", "self.base.name")]
@@ -35,6 +31,7 @@ pub struct RenodeMachine {
     pub guest_bin_shared: bool,
     pub base: BaseMachine,
     pub provider: RenodeMachineProvider,
+    pub tap_devices: BTreeMap<ConnectionName, TapDevice>,
 }
 
 impl RenodeMachine {
@@ -86,4 +83,55 @@ impl RenodeMachine {
         }
         args
     }
+}
+
+// NOTE:
+// * on the host, this requires CAP_NET_ADMIN (docker --cap-add=NET_ADMIN)
+// * on the guest, requires things from the iproute2 and bridge-utils packages
+pub(crate) fn external_network_setup_script_content(
+    taps_to_bridges: &BTreeMap<TapDevice, BridgeName>,
+) -> String {
+    let mut script = String::new();
+    script.push_str("#!/usr/bin/env bash\n");
+    script.push_str("set -euo pipefail\n");
+    script.push_str("mkdir -p /dev/net\n");
+    // 10, 200 is device code for TAP/TUN
+    // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/Documentation/networking/tuntap.rst
+    script.push_str("mknod /dev/net/tun c 10 200\n");
+    for (tap, bridge) in taps_to_bridges.iter() {
+        script.push_str(&format!("ip tuntap add dev {tap} mode tap\n"));
+        script.push_str(&format!("ip link set dev {tap} up\n"));
+        script.push_str(&format!("brctl addif {bridge} {tap}\n"));
+    }
+    script.push_str("exit 0\n");
+    script
+}
+
+pub(crate) fn external_network_teardown_script_content(
+    taps_to_bridges: &BTreeMap<TapDevice, BridgeName>,
+) -> String {
+    let mut script = String::new();
+    script.push_str("#!/usr/bin/env bash\n");
+    script.push_str("set -euo pipefail\n");
+    for (tap, bridge) in taps_to_bridges.iter() {
+        script.push_str(&format!("brctl delif {bridge} {tap}\n"));
+        script.push_str(&format!("ip link set dev {tap} down\n"));
+        script.push_str(&format!("ip tuntap del {tap} mode tap\n"));
+    }
+    script.push_str("exit 0\n");
+    script
+}
+
+pub(crate) fn guest_resc_path() -> PathBuf {
+    // Starts at the res root, not prefixed with a machine since
+    // this provider support multi-machines per single resc file
+    PathBuf::from(GUEST_RESOURCES_PATH).join(RESC_FILE_NAME)
+}
+
+pub(crate) fn guest_external_network_setup_script_path() -> PathBuf {
+    PathBuf::from(GUEST_RESOURCES_PATH).join(NET_SETUP_FILE_NAME)
+}
+
+pub(crate) fn guest_external_network_teardown_script_path() -> PathBuf {
+    PathBuf::from(GUEST_RESOURCES_PATH).join(NET_TEARDOWN_FILE_NAME)
 }
