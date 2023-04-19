@@ -31,7 +31,7 @@ impl<'a, T: io::Write> RenodeScriptGen<'a, T> {
         }
 
         for (idx, (switch_name, tap_device)) in tap_devices.iter().enumerate() {
-            writeln!(self.w, "emulation CreateTap \"{tap_device}\" tap{idx}")?;
+            writeln!(self.w, "emulation CreateTap \"{tap_device}\" \"tap{idx}\"")?;
             writeln!(self.w, "connector Connect host.tap{idx} \"{switch_name}\"")?;
         }
         if !tap_devices.is_empty() {
