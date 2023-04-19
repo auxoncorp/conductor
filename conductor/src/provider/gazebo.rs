@@ -49,6 +49,12 @@ impl GazeboWorld {
             args.push("--headless-rendering".to_owned());
             args.push("-s".to_owned());
         }
+        if let Some(verbose) = self.provider.verbose {
+            args.push("--verbose".to_owned());
+            if verbose > 0 {
+                args.push(verbose.to_string());
+            }
+        }
         args
     }
 

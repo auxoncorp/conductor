@@ -14,4 +14,6 @@ pub struct GazeboWorldProvider {
     pub partition: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub headless: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verbose: Option<usize>,
 }
