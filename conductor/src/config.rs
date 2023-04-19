@@ -216,6 +216,10 @@ impl Connection {
             Network(_) => ConnectionKind::Network,
         }
     }
+
+    pub fn is_network(&self) -> bool {
+        matches!(self.kind(), ConnectionKind::Network)
+    }
 }
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display)]

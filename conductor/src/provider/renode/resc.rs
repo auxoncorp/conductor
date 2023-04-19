@@ -1,9 +1,9 @@
 use crate::{
     config::{Connection, ConnectorProperties},
-    provider::renode::RenodeMachine,
+    provider::renode::{RenodeMachine, TapDevice},
     types::{ConnectionKind, ConnectionName, InterfaceName},
 };
-use std::{io, path::Path};
+use std::{collections::BTreeMap, io, path::Path};
 
 pub struct RenodeScriptGen<'a, T: io::Write> {
     w: &'a mut T,
@@ -21,11 +21,22 @@ impl<'a, T: io::Write> RenodeScriptGen<'a, T> {
         mut self,
         machines: &[RenodeMachine],
         connections: &[Connection],
+        tap_devices: &BTreeMap<ConnectionName, TapDevice>,
     ) -> io::Result<()> {
         for c in connections.iter() {
             self.gen_connection_create(c.name(), c.kind())?;
         }
-        writeln!(self.w)?;
+        if !connections.is_empty() {
+            writeln!(self.w)?;
+        }
+
+        for (idx, (switch_name, tap_device)) in tap_devices.iter().enumerate() {
+            writeln!(self.w, "emulation CreateTap \"{tap_device}\" \"tap{idx}\"")?;
+            writeln!(self.w, "connector Connect host.tap{idx} \"{switch_name}\"")?;
+        }
+        if !tap_devices.is_empty() {
+            writeln!(self.w)?;
+        }
 
         for m in machines.iter() {
             self.gen_machine_create(m)?;
@@ -48,6 +59,7 @@ impl<'a, T: io::Write> RenodeScriptGen<'a, T> {
                 self.gen_connector_connect(&c.name, &c.interface)?;
                 self.gen_connector_properties(&c.name, &c.interface, &c.properties)?;
             }
+
             for cmd in m.provider.resc.commands.iter() {
                 writeln!(self.w, "{cmd}")?;
             }
@@ -155,6 +167,9 @@ mod tests {
         emulation CreateGPIOConnector "foo-gpio"
         emulation CreateSwitch "foo-net"
 
+        emulation CreateTap "my_tap" "tap0"
+        connector Connect host.tap0 "foo-net"
+
         mach create "my-m0"
         mach set "my-m0"
         $bin = @/conductor_resources/my-m0/m0.bin
@@ -235,6 +250,7 @@ mod tests {
                         ..Default::default()
                     },
                 },
+                tap_devices: Default::default(),
             },
             RenodeMachine {
                 guest_bin_shared: false,
@@ -273,6 +289,7 @@ mod tests {
                         ..Default::default()
                     },
                 },
+                tap_devices: Default::default(),
             },
         ]
     }
@@ -282,8 +299,12 @@ mod tests {
         let mut resc = Vec::new();
         let machines = machines();
         let connections = connections();
+        let tap_devices = BTreeMap::from_iter(std::iter::once((
+            ConnectionName::new_canonicalize("foo-net").unwrap(),
+            "my_tap".to_string(),
+        )));
         RenodeScriptGen::new(&mut resc)
-            .generate(&machines, &connections)
+            .generate(&machines, &connections, &tap_devices)
             .unwrap();
         let out = str::from_utf8(&resc).unwrap();
         assert_eq!(out, RESC);

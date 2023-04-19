@@ -1,6 +1,6 @@
 use anyhow::Result;
 use std::borrow::Cow;
-use std::{fs, path::Path};
+use std::{collections::BTreeMap, fs, path::Path};
 
 use crate::opts::{self, Build, Check, Start};
 use conductor::*;
@@ -99,6 +99,8 @@ fn gen_container_deployment_plan<P: AsRef<Path>, C>(
         "assets": *c.assets,
         "command": c.command,
         "args": c.args,
+        "networks": c.connections.iter().filter(|c| c.is_network()).map(|c| c.name().as_str()).collect::<Vec<&str>>(),
+        "taps_to_bridges": c.taps_to_bridges.iter().map(|(t, b)| (t.as_str(), b.as_str())).collect::<BTreeMap<&str, &str>>(),
     }))?;
     fs::write(plan_path, plan)?;
 

@@ -19,6 +19,20 @@ name_newtype!(MachineName);
 name_newtype!(ConnectionName);
 name_newtype!(InterfaceName);
 
+// TODO - not sure what the constraints for these need to be yet
+pub type TapDevice = String;
+pub type BridgeName = InterfaceName;
+
+impl InterfaceName {
+    const DEFAULT_IFACE_PREFIX: &'static str = "conductor";
+
+    // TODO - this is more or less arbitrary, except it needs
+    // to adhere to docker network API constraints, which need to be determined
+    pub(crate) fn new_system_wired_network(iface_index: usize) -> Self {
+        Self(format!("{}{}", Self::DEFAULT_IFACE_PREFIX, iface_index))
+    }
+}
+
 // TODO - this will probably need to change
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, AsRef, Deref, Display, Into)]
 pub struct ContainerRuntimeName(String);

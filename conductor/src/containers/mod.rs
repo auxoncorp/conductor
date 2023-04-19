@@ -555,6 +555,8 @@ impl Container {
                     env,
                     host_config: Some(bollard::models::HostConfig {
                         device_requests,
+                        // TODO - only need CAP_NET_ADMIN if dealing with TUN/TAP interfaces
+                        //cap_add: Some(vec!["NET_ADMIN".to_owned()]),
                         auto_remove: Some(true), // seems useful, maybe?
                         // TODO - add real networking, expose host for easy mode for now
                         network_mode: Some("host".to_owned()),
