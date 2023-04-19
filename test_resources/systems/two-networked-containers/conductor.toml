@@ -1,0 +1,23 @@
+name = "two networked containers"
+
+[[machine]]
+name = "server"
+bin = "conductor.toml" # TODO: make me optional
+  [machine.provider.container]
+  image = "docker.io/kennethreitz/httpbin"
+  [[machine.connector]]
+  name = "http-test"
+  interface = "sysbus.ethernet"
+
+[[machine]]
+name = "client"
+bin = "client.sh"
+  [machine.provider.container]
+  image = "docker.io/library/ubuntu:latest"
+  [[machine.connector]]
+  name = "http-test"
+  interface = "sysbus.ethernet"
+
+[[connection]]
+name = "http-test"
+type = "network"

@@ -1,8 +1,8 @@
 use anyhow::{anyhow, bail, Context as _, Result};
 use bollard::{
-    container::{self, ListContainersOptions},
+    container::{self, ListContainersOptions, NetworkingConfig},
     image::{BuildImageOptions, CreateImageOptions, ListImagesOptions},
-    models::{DeviceRequest, Mount, MountTypeEnum},
+    models::{DeviceRequest, EndpointSettings, Mount, MountTypeEnum},
     Docker,
 };
 use data_encoding::HEXLOWER;
@@ -14,6 +14,10 @@ use std::fs::{self, File};
 use std::io::{BufReader, Read};
 use std::path::{Path, PathBuf};
 use tracing::{info, instrument, trace, warn};
+
+pub mod network;
+
+pub use network::{Network, NetworkState};
 
 type ContainerClient = Docker;
 
@@ -27,11 +31,11 @@ pub struct ContainerBuilder {
     mounts: Option<HashMap<String, String>>,
     env: Option<Vec<String>>,
     gpu_cap: bool,
+    networks: Vec<Network>,
 }
 
 #[derive(Debug, Default)]
 pub struct Container {
-    #[allow(unused)] // TODO
     name: Option<String>,
     state: ContainerState,
     image: Option<String>,
@@ -43,6 +47,7 @@ pub struct Container {
     mounts: Option<HashMap<String, String>>,
     env: Option<Vec<String>>,
     gpu_cap: bool,
+    networks: Vec<Network>,
 }
 
 #[derive(Debug, Default)]
@@ -151,6 +156,15 @@ impl ContainerBuilder {
         self
     }
 
+    pub fn set_networks(&mut self, networks: Vec<Network>) {
+        self.networks = networks;
+    }
+    pub fn with_networks(mut self, networks: Vec<Network>) -> Self {
+        self.set_networks(networks);
+
+        self
+    }
+
     pub async fn resolve(self) -> Result<Container> {
         let client = Docker::connect_with_local_defaults()
             .context("connect to container system service")?
@@ -159,6 +173,7 @@ impl ContainerBuilder {
 
         trace!("negotiated version: {}", client.client_version());
 
+        // compile shared filters
         let mut filters = Vec::new();
 
         if let Some(ref image) = self.image {
@@ -213,7 +228,7 @@ impl ContainerBuilder {
                 images.into_iter().next().map(|i| i.id)
             };
 
-        trace!("image: {image_id:?}");
+        //trace!("image: {image_id:?}");
 
         // lookup existing built container, if it exists
         let containers = client
@@ -224,7 +239,7 @@ impl ContainerBuilder {
             }))
             .await?;
 
-        trace!("containers: {containers:#?}");
+        //trace!("containers: {containers:#?}");
 
         let state = if let (Some(image), Some(container)) = (image_id, containers.get(0)) {
             ContainerState::Built {
@@ -266,6 +281,7 @@ impl ContainerBuilder {
             mounts: self.mounts,
             env: self.env,
             gpu_cap: self.gpu_cap,
+            networks: self.networks,
         };
 
         Ok(container)
@@ -515,6 +531,27 @@ impl Container {
                     bail!("container without image definition")
                 };
 
+                // build network endpoint definition
+                let mut container_network_endpoints = HashMap::new();
+                for network in &self.networks {
+                    let network_name = &network.name;
+
+                    let NetworkState::Built { id: network_id } = &network.state else {
+                            panic!("unbuilt network passed to container builder")
+                        };
+
+                    container_network_endpoints.insert(
+                        network_name.as_str(),
+                        EndpointSettings {
+                            network_id: Some(network_id.to_string()),
+                            // TODO: add alias for the simple machine name too, currently does the
+                            // "fully qualified" name only, eg. "two_networked_containers___server"
+                            aliases: self.name.clone().map(|n| vec![n]),
+                            ..Default::default()
+                        },
+                    );
+                }
+
                 let image = self.image.as_deref();
 
                 let env = self
@@ -548,6 +585,8 @@ impl Container {
 
                 let labels_ref = labels.iter().map(|(k, v)| (*k, v.as_str())).collect();
 
+                trace!(?container_network_endpoints);
+
                 let container_config = container::Config {
                     image,
                     cmd,
@@ -557,15 +596,18 @@ impl Container {
                         device_requests,
                         // TODO - only need CAP_NET_ADMIN if dealing with TUN/TAP interfaces
                         //cap_add: Some(vec!["NET_ADMIN".to_owned()]),
-                        auto_remove: Some(true), // seems useful, maybe?
-                        // TODO - add real networking, expose host for easy mode for now
-                        network_mode: Some("host".to_owned()),
                         mounts,
                         ..Default::default()
                     }),
                     labels: Some(labels_ref),
+                    // networking must be set here explicitly to implicitly disable the default
+                    // bridge network
+                    networking_config: Some(NetworkingConfig {
+                        endpoints_config: container_network_endpoints,
+                    }),
                     ..Default::default()
                 };
+
                 let container = client
                     .create_container::<&str, _>(
                         None, // disabled until deleting works
@@ -598,7 +640,7 @@ impl Container {
     }
 
     #[instrument]
-    pub async fn run(&mut self) -> Result<()> {
+    pub async fn start(&mut self) -> Result<()> {
         let client = self.client().await;
 
         match &self.state {
@@ -608,7 +650,7 @@ impl Container {
             }
             ContainerState::Built {
                 container_id,
-                image_id: _,
+                image_id,
             } => {
                 trace!(container_id, "start previously built container");
                 assert!(
@@ -616,6 +658,11 @@ impl Container {
                     "container id can't be the empty string"
                 );
                 client.start_container::<String>(container_id, None).await?;
+
+                self.state = ContainerState::Running {
+                    container_id: container_id.clone(),
+                    image_id: image_id.clone(),
+                };
             }
             ContainerState::Running { .. } => {
                 trace!("container already running, nothing to do");
@@ -690,7 +737,7 @@ mod tests {
         container.build().await?;
 
         info!("run");
-        container.run().await
+        container.start().await
     }
 
     #[tokio::test]
@@ -712,7 +759,7 @@ mod tests {
 
         container.build().await?;
 
-        container.run().await?;
+        container.start().await?;
 
         // TODO.pb: verify application ran automatically?
 

@@ -1,16 +1,20 @@
 use crate::{
-    containers::Container,
+    config::{ConnectorProperties, MachineConnector},
+    containers::{Container, Network},
     provider::{
         container::ContainerMachine, gazebo::GazeboWorld, qemu::QemuMachine, renode::RenodeMachine,
     },
+    types::ConnectionName,
     ComponentGraph, Config, Deployment, DeploymentContainer, WorldOrMachineComponent,
 };
 use anyhow::Result;
+use std::collections::BTreeMap;
 use std::path::Path;
 
 pub struct System {
     config: Config,
-    containers: Vec<ContainerRuntime>,
+    containers: Vec<Container>,
+    networks: BTreeMap<ConnectionName, Network>,
 }
 
 impl System {
@@ -18,6 +22,7 @@ impl System {
         System {
             config,
             containers: Vec::new(),
+            networks: BTreeMap::new(),
         }
     }
 
@@ -74,21 +79,26 @@ impl System {
     pub async fn build_runtime_containers_from_deployment(&mut self) -> Result<()> {
         debug_assert!(self.containers.is_empty());
         let deployment = self.deployment()?;
+
+        for n in deployment.wired_networks.iter() {
+            // TODO: find a way to identify networks by more than name
+            self.networks.insert(
+                n.clone(),
+                Network::builder().name(n.to_string()).resolve().await?,
+            );
+        }
+
         for c in deployment.gazebo_containers.iter() {
-            self.containers
-                .push(ContainerRuntime::new_gazebo_world(c).await?);
+            self.new_gazebo_world(c).await?;
         }
         for c in deployment.renode_containers.iter() {
-            self.containers
-                .push(ContainerRuntime::new_renode_machine(c).await?);
+            self.new_renode_machine(c).await?;
         }
         for c in deployment.qemu_containers.iter() {
-            self.containers
-                .push(ContainerRuntime::new_qemu_machine(c).await?);
+            self.new_qemu_machine(c).await?;
         }
         for c in deployment.container_containers.iter() {
-            self.containers
-                .push(ContainerRuntime::new_container_machine(c).await?);
+            self.new_container_machine(c).await?;
         }
 
         Ok(())
@@ -109,19 +119,11 @@ impl System {
 
         Ok(())
     }
-}
 
-#[derive(Debug)]
-struct ContainerRuntime {
-    // TODO maybe flatten this if nothing else needed?
-    // name: ContainerRuntimeName,
-    // deployment: DeploymentContainer<C>
-    // ...?
-    container: Container,
-}
-
-impl ContainerRuntime {
-    async fn new_gazebo_world(deployment: &DeploymentContainer<GazeboWorld>) -> Result<Self> {
+    async fn new_gazebo_world(
+        &mut self,
+        deployment: &DeploymentContainer<GazeboWorld>,
+    ) -> Result<()> {
         let name = deployment.name.clone();
         let mut cmd = deployment.args.clone();
         cmd.insert(0, deployment.command.clone());
@@ -139,12 +141,18 @@ impl ContainerRuntime {
                 .map(|asset| (asset.0.to_str().unwrap(), asset.1.to_str().unwrap()));
             container.set_mounts(mounts);
         };
-        Ok(Self {
-            container: container.resolve().await?,
-        })
+
+        // TODO: networks
+
+        self.containers.push(container.resolve().await?);
+
+        Ok(())
     }
 
-    async fn new_renode_machine(deployment: &DeploymentContainer<RenodeMachine>) -> Result<Self> {
+    async fn new_renode_machine(
+        &mut self,
+        deployment: &DeploymentContainer<RenodeMachine>,
+    ) -> Result<()> {
         let name = deployment.name.clone();
         let mut cmd = deployment.args.clone();
         cmd.insert(0, deployment.command.clone());
@@ -162,18 +170,25 @@ impl ContainerRuntime {
                 .map(|asset| (asset.0.to_str().unwrap(), asset.1.to_str().unwrap()));
             container.set_mounts(mounts);
         };
-        Ok(Self {
-            container: container.resolve().await?,
-        })
+
+        // TODO: networks
+
+        self.containers.push(container.resolve().await?);
+
+        Ok(())
     }
 
-    async fn new_qemu_machine(deployment: &DeploymentContainer<QemuMachine>) -> Result<Self> {
+    async fn new_qemu_machine(
+        &mut self,
+        deployment: &DeploymentContainer<QemuMachine>,
+    ) -> Result<()> {
         let name = deployment.name.clone();
+        let machine = deployment.machine();
         let mut cmd = deployment.args.clone();
         cmd.insert(0, deployment.command.clone());
         let mut container = Container::builder()
             .with_name(name.as_str())
-            .with_image(deployment.machine().base_image())
+            .with_image(machine.base_image())
             .with_cmd(cmd)
             .with_env(&deployment.environment_variables.0)
             .with_gpu_cap(deployment.uses_host_display);
@@ -185,14 +200,23 @@ impl ContainerRuntime {
                 .map(|asset| (asset.0.to_str().unwrap(), asset.1.to_str().unwrap()));
             container.set_mounts(mounts);
         };
-        Ok(Self {
-            container: container.resolve().await?,
-        })
+        let networks = machine
+            .base
+            .connectors
+            .iter()
+            .filter_map(|c| self.try_get_network_for_connection(c))
+            .collect();
+        container.set_networks(networks);
+
+        self.containers.push(container.resolve().await?);
+
+        Ok(())
     }
 
     async fn new_container_machine(
+        &mut self,
         deployment: &DeploymentContainer<ContainerMachine>,
-    ) -> Result<Self> {
+    ) -> Result<()> {
         let name = deployment.name.clone();
         let machine = deployment.machine();
 
@@ -222,17 +246,25 @@ impl ContainerRuntime {
             container.set_cmd(cmd);
         };
         container.set_env(&deployment.environment_variables.0);
-        Ok(Self {
-            container: container.resolve().await?,
-        })
+
+        let networks = machine
+            .base
+            .connectors
+            .iter()
+            .filter_map(|c| self.try_get_network_for_connection(c))
+            .collect();
+        container.set_networks(networks);
+
+        self.containers.push(container.resolve().await?);
+
+        Ok(())
     }
 
-    pub(crate) async fn build(&mut self) -> Result<()> {
-        self.container.build().await
-    }
-
-    pub(crate) async fn start(&mut self) -> Result<()> {
-        self.container.run().await
+    fn try_get_network_for_connection(&self, conn: &MachineConnector) -> Option<Network> {
+        match &conn.properties {
+            ConnectorProperties::Network(_) => Some(self.networks.get(&conn.name)?.clone()),
+            _ => None,
+        }
     }
 }
 
@@ -267,12 +299,13 @@ mod tests {
                 connections: BTreeSet::new(),
                 worlds: Vec::new(),
             },
-            containers: vec![ContainerRuntime {
-                container: Container::builder()
+            containers: vec![
+                Container::builder()
                     .with_image("docker.io/ubuntu:latest")
                     .resolve()
                     .await?,
-            }],
+            ],
+            networks: BTreeMap::new(),
         };
 
         system.build().await?;
