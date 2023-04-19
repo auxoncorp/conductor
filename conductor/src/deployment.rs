@@ -18,8 +18,6 @@ use anyhow::Result;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs,
-    io::Write,
-    os::unix::fs::OpenOptionsExt,
     path::PathBuf,
     str,
 };
@@ -452,13 +450,25 @@ impl Deployment {
                         fs::create_dir_all(&host_dir)?;
 
                         // TODO - don't need to make everything executable
-                        let mut f = fs::OpenOptions::new()
-                            .mode(0o777)
-                            .write(true)
-                            .create(true)
-                            .truncate(true)
-                            .open(&host_path)?;
-                        f.write_all(content.as_bytes())?;
+                        #[cfg(unix)]
+                        {
+                            use std::io::Write;
+                            use std::os::unix::fs::OpenOptionsExt;
+
+                            let mut f = fs::OpenOptions::new()
+                                .mode(0o777)
+                                .write(true)
+                                .create(true)
+                                .truncate(true)
+                                .open(&host_path)?;
+                            f.write_all(content.as_bytes())?;
+                        }
+
+                        // TODO - we don't support windows yet
+                        #[cfg(not(unix))]
+                        {
+                            fs::write(&host_path, content)?;
+                        }
 
                         renode_container
                             .assets

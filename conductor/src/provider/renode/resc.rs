@@ -167,7 +167,7 @@ mod tests {
         emulation CreateGPIOConnector "foo-gpio"
         emulation CreateSwitch "foo-net"
 
-        emulation CreateTap "my_tap" tap0
+        emulation CreateTap "my_tap" "tap0"
         connector Connect host.tap0 "foo-net"
 
         mach create "my-m0"
