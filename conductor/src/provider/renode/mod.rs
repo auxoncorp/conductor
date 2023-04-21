@@ -19,7 +19,7 @@ const NET_TEARDOWN_FILE_NAME: &str = "net_teardown.sh";
 // TODO - change this
 // build it from the root for now:
 //   docker build -f images/renode/Containerfile -t 'conductor_renode:latest' images/renode/
-const DEFAULT_BASE_IMAGE: &str = "conductor_renode:latest";
+const DEFAULT_BASE_IMAGE: &str = "renode";
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display)]
 #[display(fmt = "{}:{}", "ProviderKind::Renode", "self.base.name")]

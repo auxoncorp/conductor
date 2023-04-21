@@ -10,7 +10,7 @@ const COMMAND: &str = "qemu-system-arm";
 // TODO - change this
 // build it from the root for now:
 //   docker build -f images/qemu/Containerfile -t 'conductor_qemu:latest' images/qemu/
-const DEFAULT_BASE_IMAGE: &str = "conductor_qemu:latest";
+const DEFAULT_BASE_IMAGE: &str = "qemu";
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display)]
 #[display(fmt = "{}:{}", "ProviderKind::Qemu", "self.base.name")]

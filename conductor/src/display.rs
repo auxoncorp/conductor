@@ -29,8 +29,8 @@ pub(crate) fn write_guest_xauth<P: AsRef<Path>, W: Write>(
     for maybe_entry in XAuthorityEntries::read(host_xauthority)? {
         let mut entry = maybe_entry?;
 
-        // Write out entries for our display
-        if entry.number.as_slice() == display {
+        // Write out entries for our display (systems with one display don't number entries)
+        if entry.number.as_slice() == display || entry.number.is_empty() {
             // Replace source protocol with any/wildcard
             entry.family = AuthEntry::PROTOCOL_WILD;
             entry.write(out)?;
