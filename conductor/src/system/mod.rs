@@ -127,9 +127,8 @@ impl System {
         let name = deployment.name.clone();
         let mut cmd = deployment.args.clone();
         cmd.insert(0, deployment.command.clone());
-        let mut container = Container::builder()
+        let mut container = Container::from_internal_image(&deployment.world().base_image())
             .with_name(name.as_str())
-            .with_image(deployment.world().base_image())
             .with_cmd(cmd)
             .with_env(&deployment.environment_variables.0)
             .with_gpu_cap(deployment.uses_host_display);
@@ -156,9 +155,8 @@ impl System {
         let name = deployment.name.clone();
         let mut cmd = deployment.args.clone();
         cmd.insert(0, deployment.command.clone());
-        let mut container = Container::builder()
+        let mut container = Container::from_internal_image(&deployment.base_image())
             .with_name(name.as_str())
-            .with_image(deployment.base_image())
             .with_cmd(cmd)
             .with_env(&deployment.environment_variables.0)
             .with_gpu_cap(deployment.uses_host_display);
@@ -186,9 +184,8 @@ impl System {
         let machine = deployment.machine();
         let mut cmd = deployment.args.clone();
         cmd.insert(0, deployment.command.clone());
-        let mut container = Container::builder()
+        let mut container = Container::from_internal_image(&machine.base_image())
             .with_name(name.as_str())
-            .with_image(machine.base_image())
             .with_cmd(cmd)
             .with_env(&deployment.environment_variables.0)
             .with_gpu_cap(deployment.uses_host_display);

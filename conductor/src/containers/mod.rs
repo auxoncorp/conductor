@@ -1,8 +1,8 @@
 use anyhow::{anyhow, bail, Context as _, Result};
 use bollard::{
-    container::{self, ListContainersOptions, NetworkingConfig},
+    container::{self, ListContainersOptions},
     image::{BuildImageOptions, CreateImageOptions, ListImagesOptions},
-    models::{DeviceRequest, EndpointSettings, Mount, MountTypeEnum},
+    models::{DeviceMapping, DeviceRequest, EndpointSettings, Mount, MountTypeEnum},
     Docker,
 };
 use data_encoding::HEXLOWER;
@@ -297,7 +297,7 @@ fn digest_for_path(path: &Path) -> Result<Digest> {
     } else if path.is_file() {
         digest_file(&mut context, path, path)?;
     } else {
-        bail!("path is not a directory or file");
+        bail!("path is not a directory or file: {}", path.display());
     }
 
     Ok(context.finish())
@@ -571,13 +571,6 @@ impl Container {
                         .collect()
                 });
 
-                let device_requests = self.gpu_cap.then_some({
-                    vec![DeviceRequest {
-                        capabilities: Some(vec![vec!["gpu".to_owned()]]),
-                        ..Default::default()
-                    }]
-                });
-
                 let cmd = self
                     .cmd
                     .as_ref()
@@ -587,24 +580,54 @@ impl Container {
 
                 trace!(?container_network_endpoints);
 
+                // hook up GPU for GUI containers
+                let (devices, device_requests) = if self.gpu_cap {
+                    if std::env::var("NVIDIA_GPU").is_ok() {
+                        (
+                            None,
+                            Some(vec![DeviceRequest {
+                                capabilities: Some(vec![vec!["gpu".to_owned()]]),
+                                ..Default::default()
+                            }]),
+                        )
+                    } else {
+                        (
+                            Some(vec![DeviceMapping {
+                                path_on_host: Some("/dev/dri".to_string()),
+                                path_in_container: Some("/dev/dri".to_string()),
+                                cgroup_permissions: Some("rwm".to_string()),
+                            }]),
+                            None,
+                        )
+                    }
+                } else {
+                    (None, None)
+                };
+
                 let container_config = container::Config {
                     image,
                     cmd,
                     tty: Some(true),
                     env,
                     host_config: Some(bollard::models::HostConfig {
-                        device_requests,
+                        network_mode: Some("host".to_owned()),
                         // TODO - only need CAP_NET_ADMIN if dealing with TUN/TAP interfaces
                         //cap_add: Some(vec!["NET_ADMIN".to_owned()]),
                         mounts,
+                        devices,
+                        device_requests,
                         ..Default::default()
                     }),
                     labels: Some(labels_ref),
                     // networking must be set here explicitly to implicitly disable the default
                     // bridge network
-                    networking_config: Some(NetworkingConfig {
-                        endpoints_config: container_network_endpoints,
-                    }),
+                    //
+                    // TODO: reenable networking, need to figure out how to make GUI work without
+                    //       host network mode
+                    //
+                    //networking_config: Some(NetworkingConfig {
+                    //    endpoints_config: container_network_endpoints,
+                    //}),
                     ..Default::default()
                 };
 

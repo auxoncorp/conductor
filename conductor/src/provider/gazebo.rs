@@ -8,7 +8,7 @@ const COMMAND: &str = "gz";
 // TODO - change this
 // build it from the root for now:
 //   docker build -f images/gazebo/Containerfile -t 'conductor_gazebo:latest' images/gazebo/
-const DEFAULT_BASE_IMAGE: &str = "conductor_gazebo:latest";
+const DEFAULT_BASE_IMAGE: &str = "gazebo";
 
 // See https://gazebosim.org/api/transport/12.0/envvars.html
 // and https://gazebosim.org/api/gazebo/7/resources.html
