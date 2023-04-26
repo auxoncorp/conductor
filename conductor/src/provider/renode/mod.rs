@@ -7,8 +7,10 @@ use conductor_config::RenodeMachineProvider;
 use derive_more::Display;
 use std::{collections::BTreeMap, path::PathBuf};
 
+pub use platform_description::PlatformDescription;
 pub use resc::RenodeScriptGen;
 
+mod platform_description;
 mod resc;
 
 const COMMAND: &str = "renode";
@@ -31,6 +33,9 @@ pub struct RenodeMachine {
     pub guest_bin_shared: bool,
     pub base: BaseMachine,
     pub provider: RenodeMachineProvider,
+    /// These platform descriptions are constructed from the
+    /// config-level string descriptions found in provider.resc.platform_descriptions
+    pub platform_descriptions: Vec<PlatformDescription>,
     pub tap_devices: BTreeMap<ConnectionName, TapDevice>,
 }
 

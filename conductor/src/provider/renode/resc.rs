@@ -1,6 +1,9 @@
 use crate::{
     config::{Connection, ConnectorProperties},
-    provider::renode::{RenodeMachine, TapDevice},
+    provider::{
+        guest_component_resource_path,
+        renode::{PlatformDescription, RenodeMachine, TapDevice},
+    },
     types::{ConnectionKind, ConnectionName, InterfaceName},
 };
 use std::{collections::BTreeMap, io, path::Path};
@@ -42,9 +45,19 @@ impl<'a, T: io::Write> RenodeScriptGen<'a, T> {
             self.gen_machine_create(m)?;
             self.gen_machine_set(m)?;
             writeln!(self.w, "$bin = {}", resc_path(&m.guest_bin()))?;
-            for repl in m.provider.resc.platform_descriptions.iter() {
+            for pd in m.platform_descriptions.iter() {
                 // TODO - we'll need to support all the variants of platform descriptions
-                writeln!(self.w, "machine LoadPlatformDescription @{repl}")?;
+                let guest_repl_path = match pd {
+                    PlatformDescription::ProvidedByRenode(repl) => repl.clone(),
+                    PlatformDescription::LocalFile(file_name, _content) => {
+                        guest_component_resource_path(&m.base.name).join(file_name)
+                    }
+                };
+                writeln!(
+                    self.w,
+                    "machine LoadPlatformDescription @{}",
+                    guest_repl_path.display()
+                )?;
             }
             for c in m.base.connectors.iter() {
                 let con_exists = connections.iter().any(|conn| conn.name() == &c.name);
@@ -250,6 +263,9 @@ mod tests {
                         ..Default::default()
                     },
                 },
+                platform_descriptions: vec![PlatformDescription::ProvidedByRenode(PathBuf::from(
+                    "platforms/cpus/stm32f429.repl",
+                ))],
                 tap_devices: Default::default(),
             },
             RenodeMachine {
@@ -289,6 +305,9 @@ mod tests {
                         ..Default::default()
                     },
                 },
+                platform_descriptions: vec![PlatformDescription::ProvidedByRenode(PathBuf::from(
+                    "platforms/cpus/stm32f411.repl",
+                ))],
                 tap_devices: Default::default(),
             },
         ]

@@ -4,8 +4,9 @@ use crate::{
     provider::{
         container::ContainerMachine,
         gazebo::GazeboWorld,
+        guest_component_resource_path,
         qemu::QemuMachine,
-        renode::{self, guest_resc_path, RenodeMachine, RenodeScriptGen},
+        renode::{self, guest_resc_path, PlatformDescription, RenodeMachine, RenodeScriptGen},
     },
     types::{
         BridgeName, ComponentName, ConnectionKind, ConnectionName, ContainerRuntimeName,
@@ -211,10 +212,18 @@ impl Deployment {
                     },
                     WorldOrMachineComponent::Machine(m) => match m.provider {
                         MachineProvider::Renode(p) => {
+                            let platform_descriptions = p
+                                .resc
+                                .platform_descriptions
+                                .iter()
+                                .map(|pd| PlatformDescription::from_config(pd))
+                                .collect::<Result<Vec<PlatformDescription>, _>>()?;
+
                             let mut rm = RenodeMachine {
                                 guest_bin_shared: false,
                                 base: m.base,
                                 provider: p,
+                                platform_descriptions,
                                 // TODO - each network kind connection to a different
                                 // container (or host) gets a tap device
                                 // name is conn_name_tap or w/e
@@ -347,6 +356,18 @@ impl Deployment {
                     !renode_container.components.is_empty(),
                     "Renode machines should not be empty"
                 );
+
+                for rm in renode_container.components.iter() {
+                    for pd in rm.platform_descriptions.iter() {
+                        if let PlatformDescription::LocalFile(file_name, content) = pd {
+                            let guest_path =
+                                guest_component_resource_path(&rm.base.name).join(file_name);
+                            renode_container
+                                .generated_guest_files
+                                .insert(guest_path, content.clone());
+                        }
+                    }
+                }
 
                 renode_container
                     .args
