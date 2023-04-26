@@ -15,6 +15,6 @@ async fn main() -> Result<()> {
 
     match args.command {
         Command::System(c) => commands::system::handle(c).await,
-        Command::Machine(_) => todo!("machine"),
+        Command::Machine(m) => commands::machine::handle(m).await,
     }
 }

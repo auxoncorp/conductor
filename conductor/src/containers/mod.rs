@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail, Context as _, Result};
 use bollard::{
-    container::{self, ListContainersOptions},
+    container::{self, AttachContainerOptions, ListContainersOptions},
     image::{BuildImageOptions, CreateImageOptions, ListImagesOptions},
     models::{DeviceMapping, DeviceRequest, EndpointSettings, Mount, MountTypeEnum},
     Docker,
@@ -18,6 +18,9 @@ use tracing::{info, instrument, trace, warn};
 pub mod network;
 
 pub use network::{Network, NetworkState};
+
+// TODO: use a real local type
+pub use bollard::container::LogOutput;
 
 type ContainerClient = Docker;
 
@@ -242,9 +245,16 @@ impl ContainerBuilder {
         //trace!("containers: {containers:#?}");
 
         let state = if let (Some(image), Some(container)) = (image_id, containers.get(0)) {
-            ContainerState::Built {
-                image_id: image,
-                container_id: container.id.clone().expect("container that exists has id"),
+            if container.state == Some("running".to_string()) {
+                ContainerState::Running {
+                    image_id: image,
+                    container_id: container.id.clone().expect("container that exists has id"),
+                }
+            } else {
+                ContainerState::Built {
+                    image_id: image,
+                    container_id: container.id.clone().expect("container that exists has id"),
+                }
             }
         } else {
             //let images = client.list_images::<&str>(None).await?;
@@ -369,6 +379,11 @@ impl Container {
         Self::builder()
             .with_image(format!("conductor/{image}"))
             .with_context(image_context_dir)
+    }
+
+    // TODO: should name just be made non-optional?
+    pub fn name(&self) -> Option<&str> {
+        self.name.as_deref()
     }
 
     async fn client(&self) -> ContainerClient {
@@ -693,6 +708,38 @@ impl Container {
         }
 
         Ok(())
+    }
+
+    #[instrument]
+    pub async fn attach(&self) -> Result<bollard::container::AttachContainerResults> {
+        let client = self.client().await;
+
+        match &self.state {
+            ContainerState::Defined => {
+                bail!("machine not built or running, can't attach");
+            }
+            ContainerState::Built { .. } => {
+                bail!("machine not running, can't attach");
+            }
+            ContainerState::Running { container_id, .. } => {
+                trace!(container_id, "attach to container");
+                let io = client
+                    .attach_container::<String>(
+                        container_id,
+                        Some(AttachContainerOptions {
+                            logs: Some(true),
+                            stream: Some(true),
+                            stdin: Some(true),
+                            stdout: Some(true),
+                            stderr: Some(true),
+                            detach_keys: Some("ctrl-d".to_string()),
+                        }),
+                    )
+                    .await?;
+
+                Ok(io)
+            }
+        }
     }
 }
 

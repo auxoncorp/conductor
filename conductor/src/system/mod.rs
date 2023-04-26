@@ -1,13 +1,14 @@
 use crate::{
+    component::Component,
     config::{ConnectorProperties, MachineConnector},
     containers::{Container, Network},
     provider::{
         container::ContainerMachine, gazebo::GazeboWorld, qemu::QemuMachine, renode::RenodeMachine,
     },
-    types::ConnectionName,
+    types::{ConnectionName, ContainerRuntimeName},
     ComponentGraph, Config, Deployment, DeploymentContainer, WorldOrMachineComponent,
 };
-use anyhow::Result;
+use anyhow::{bail, Result};
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -47,6 +48,10 @@ impl System {
         &self.config
     }
 
+    pub fn containers(&self) -> impl IntoIterator<Item = &Container> {
+        self.containers.as_slice()
+    }
+
     pub fn components(&self) -> Vec<WorldOrMachineComponent> {
         self.config
             .worlds
@@ -74,6 +79,22 @@ impl System {
         let graph = self.graph().unwrap();
         let deployment = Deployment::from_graph(&self.config.global, &graph)?;
         Ok(deployment)
+    }
+
+    pub fn container_runtime_name_for_machine_named(
+        &self,
+        machine: &str,
+    ) -> Result<ContainerRuntimeName> {
+        for known_machine in &self.config.machines {
+            if known_machine.base.name.as_str() == machine {
+                return Ok(ContainerRuntimeName::new_single(
+                    &self.config.global.name,
+                    &known_machine.name(),
+                ));
+            }
+        }
+
+        bail!("machine not found")
     }
 
     pub async fn build_runtime_containers_from_deployment(&mut self) -> Result<()> {
