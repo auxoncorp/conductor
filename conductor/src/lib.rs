@@ -4,6 +4,7 @@ pub mod config;
 pub mod containers;
 pub mod deployment;
 pub mod display;
+pub(crate) mod envsub;
 pub mod provider;
 pub mod system;
 pub mod types;

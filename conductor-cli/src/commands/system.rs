@@ -28,9 +28,8 @@ pub async fn handle(s: opts::System) -> Result<()> {
                 directed,
             } => {
                 let system = common.resolve_system().await?;
-                let components = system.components();
+                let graph = system.graph()?;
                 let mut stdout = std::io::stdout().lock();
-                let graph = ComponentGraph::new(components, system.config().connections.clone())?;
                 graph.write_dot(color, directed, &mut stdout)?;
             }
             opts::Export::DeploymentPlan {

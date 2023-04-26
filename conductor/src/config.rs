@@ -631,15 +631,29 @@ impl Config {
                         .map_err(ConfigError::from)?;
                 }
 
-                if let MachineProvider::Container(ref mut cmp) = m.provider {
-                    if let Some(ref mut containerfile) = cmp.containerfile {
-                        if containerfile.is_relative() {
-                            *containerfile = cfg_dir.join(&containerfile)
+                match m.provider {
+                    MachineProvider::Renode(ref mut cmp) => {
+                        for plat_desc in cmp.resc.platform_descriptions.iter_mut() {
+                            let maybe_path = Path::new(plat_desc);
+                            if maybe_path.is_relative() {
+                                let abs_plat_desc = cfg_dir.join(maybe_path);
+                                if abs_plat_desc.exists() {
+                                    *plat_desc = abs_plat_desc.to_string_lossy().to_string();
+                                }
+                            }
                         }
                     }
-                    if let Some(ref mut context) = cmp.context {
-                        if context.is_relative() {
-                            *context = cfg_dir.join(&context)
+                    MachineProvider::Qemu(_) => (),
+                    MachineProvider::Container(ref mut cmp) => {
+                        if let Some(ref mut containerfile) = cmp.containerfile {
+                            if containerfile.is_relative() {
+                                *containerfile = cfg_dir.join(&containerfile)
+                            }
+                        }
+                        if let Some(ref mut context) = cmp.context {
+                            if context.is_relative() {
+                                *context = cfg_dir.join(&context)
+                            }
                         }
                     }
                 }
