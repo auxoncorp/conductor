@@ -93,20 +93,39 @@ pub enum Export {
 pub enum Machine {
     List(List),
     Inspect(Inspect),
+    Attach(Attach),
     Dump(Dump),
 }
 
 /// List machines
 #[derive(Parser, Debug)]
-pub struct List {}
+pub struct List {
+    #[command(flatten)]
+    pub system: CommonSystemOptions,
+}
 
 /// Inspect a machine
 #[derive(Parser, Debug)]
-pub struct Inspect {}
+pub struct Inspect {
+    #[command(flatten)]
+    pub system: CommonSystemOptions,
+}
+
+/// Attach to a running machine
+#[derive(Parser, Debug)]
+pub struct Attach {
+    #[command(flatten)]
+    pub system: CommonSystemOptions,
+
+    pub machine_name: String,
+}
 
 /// Dump a machine configuration
 #[derive(Parser, Debug)]
-pub struct Dump {}
+pub struct Dump {
+    #[command(flatten)]
+    pub system: CommonSystemOptions,
+}
 
 #[derive(Parser, Debug)]
 pub struct CommonSystemOptions {

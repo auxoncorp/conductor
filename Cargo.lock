@@ -317,6 +317,7 @@ dependencies = [
  "clap",
  "conductor",
  "conductor-config",
+ "futures-util",
  "predicates 2.1.5",
  "serde_json",
  "thiserror",
