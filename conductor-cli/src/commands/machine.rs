@@ -49,6 +49,7 @@ pub async fn handle(s: Machine) -> Result<()> {
                             LogOutput::StdIn { message } => stdout.write_all(&message).await?,
                             LogOutput::StdOut { message } => stdout.write_all(&message).await?,
                             LogOutput::StdErr { message } => stderr.write_all(&message).await?,
+                            // Everything is coming out of this variant, why? What actaully is it?
                             LogOutput::Console { message } => stdout.write_all(&message).await?,
                         }
                     }
