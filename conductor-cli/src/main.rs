@@ -1,6 +1,7 @@
 mod commands;
 mod opts;
 mod stats;
+mod tui;
 
 use anyhow::Result;
 use opts::Command;
@@ -11,6 +12,7 @@ async fn main() -> Result<()> {
 
     tracing_subscriber::fmt()
         .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .with_writer(std::io::stderr)
         .pretty()
         .init();
 
