@@ -623,6 +623,7 @@ impl Container {
                     image,
                     cmd,
                     tty: Some(true),
+                    open_stdin: Some(true),
                     env,
                     host_config: Some(bollard::models::HostConfig {
                         network_mode: Some("host".to_owned()),
