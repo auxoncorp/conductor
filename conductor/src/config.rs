@@ -19,8 +19,6 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const CONDUCTOR_CONFIG_DIR_ENV_VAR: &str = "CONDUCTOR_CONFIG_DIR";
-
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
     #[error("A connection must have a name")]
@@ -541,10 +539,6 @@ impl Config {
 
         let cfg = conductor_config::Config::read(&config_path)?;
         let cfg_dir = config_path.as_ref().parent();
-
-        if let Some(d) = &cfg_dir {
-            env::set_var(CONDUCTOR_CONFIG_DIR_ENV_VAR, d);
-        }
 
         let global = Global::from(cfg.global);
 
