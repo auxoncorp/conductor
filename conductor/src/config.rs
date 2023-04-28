@@ -187,6 +187,24 @@ impl ConnectorProperties {
             Network(_p) => None,
         }
     }
+
+    pub fn is_guest_to_host(&self) -> bool {
+        use ConnectorProperties::*;
+        match self {
+            Uart(p) => p.pipe.is_some() || p.pty.is_some() || p.port.is_some(),
+            Gpio(_p) => false,
+            Network(_p) => false,
+        }
+    }
+
+    pub fn kind(&self) -> ConnectionKind {
+        use ConnectorProperties::*;
+        match self {
+            Uart(_) => ConnectionKind::Uart,
+            Gpio(_) => ConnectionKind::Gpio,
+            Network(_) => ConnectionKind::Network,
+        }
+    }
 }
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, From, Display)]
