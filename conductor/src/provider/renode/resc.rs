@@ -26,9 +26,38 @@ impl<'a, T: io::Write> RenodeScriptGen<'a, T> {
         connections: &[Connection],
         tap_devices: &BTreeMap<ConnectionName, TapDevice>,
     ) -> io::Result<()> {
+        let connections: Vec<RenodeConnection> = connections
+            .iter()
+            .cloned()
+            .map(|c| {
+                if let Some(uart_connector) = machines
+                    .iter()
+                    .flat_map(|m| m.base.connectors.iter())
+                    .filter(|mc| &mc.name == c.name() && mc.properties.is_guest_to_host())
+                    .find_map(|mc| match &mc.properties {
+                        ConnectorProperties::Uart(p) => p.port.map(|port| {
+                            (mc.interface.clone(), port, p.emit_config.unwrap_or(true))
+                        }),
+                        _ => None,
+                    })
+                {
+                    // Guest-to-host connections only have a single machine connector
+                    RenodeConnection::GuestToHostUartSocketTerm(
+                        c,
+                        uart_connector.0,
+                        uart_connector.1,
+                        uart_connector.2,
+                    )
+                } else {
+                    RenodeConnection::GuestToGuest(c)
+                }
+            })
+            .collect();
+
         for c in connections.iter() {
-            self.gen_connection_create(c.name(), c.kind())?;
+            self.gen_connection_create(c)?;
         }
+
         if !connections.is_empty() {
             writeln!(self.w)?;
         }
@@ -100,18 +129,25 @@ impl<'a, T: io::Write> RenodeScriptGen<'a, T> {
         writeln!(self.w, "mach set \"{}\"", m.base.name)
     }
 
-    fn gen_connection_create(
-        &mut self,
-        name: &ConnectionName,
-        kind: ConnectionKind,
-    ) -> io::Result<()> {
+    fn gen_connection_create(&mut self, connection: &RenodeConnection) -> io::Result<()> {
         use ConnectionKind::*;
-        let op = match kind {
-            Uart => "CreateUARTHub",
-            Gpio => "CreateGPIOConnector",
-            Network => "CreateSwitch",
-        };
-        writeln!(self.w, "emulation {op} \"{name}\"")
+        use RenodeConnection::*;
+
+        match connection {
+            GuestToHostUartSocketTerm(c, _iface, port, emit_cfg) => writeln!(
+                self.w,
+                "emulation CreateServerSocketTerminal {port} \"{name}\" {emit_cfg}",
+                name = c.name()
+            ),
+            GuestToGuest(c) => {
+                let op = match c.kind() {
+                    Uart => "CreateUARTHub",
+                    Gpio => "CreateGPIOConnector",
+                    Network => "CreateSwitch",
+                };
+                writeln!(self.w, "emulation {op} \"{name}\"", name = c.name())
+            }
+        }
     }
 
     fn gen_connector_connect(
@@ -153,6 +189,31 @@ impl<'a, T: io::Write> RenodeScriptGen<'a, T> {
     }
 }
 
+type PortNumber = u16;
+type EmitConfig = bool;
+
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+enum RenodeConnection {
+    GuestToHostUartSocketTerm(Connection, InterfaceName, PortNumber, EmitConfig),
+
+    // TODO pty not supported yet, since it requires further device mapping
+    // in the runtime container
+    //GuestToHostUartPty(Connection, MachineConnector),
+
+    // Normal conections
+    GuestToGuest(Connection),
+}
+
+impl RenodeConnection {
+    fn name(&self) -> &ConnectionName {
+        use RenodeConnection::*;
+        match self {
+            GuestToHostUartSocketTerm(c, _, _, _) => c.name(),
+            GuestToGuest(c) => c.name(),
+        }
+    }
+}
+
 /// Paths in renode scripts (.resc) use C# conventions
 fn resc_path<P: AsRef<Path>>(p: P) -> String {
     format!("@{}", p.as_ref().display())
@@ -169,7 +230,7 @@ mod tests {
     };
     use conductor_config::{
         GpioConnectorProperties, NetworkConnectorProperties, RenodeMachineProvider,
-        RenodeScriptConfig,
+        RenodeScriptConfig, UartConnectorProperties,
     };
     use indoc::indoc;
     use pretty_assertions::assert_eq;
@@ -177,6 +238,7 @@ mod tests {
 
     const RESC: &str = indoc! {r#"
         emulation CreateUARTHub "foo-uart"
+        emulation CreateServerSocketTerminal 1234 "foo-uart-socket" false
         emulation CreateGPIOConnector "foo-gpio"
         emulation CreateSwitch "foo-net"
 
@@ -190,6 +252,7 @@ mod tests {
         connector Connect sysbus.usart0 "foo-uart"
         connector Connect sysbus.gpioPortA "foo-gpio"
         foo-gpio SelectSourcePin sysbus.gpioPortA 2
+        connector Connect sysbus.usart2 "foo-uart-socket"
         connector Connect sysbus.ethernet "foo-net"
         cpu PerformanceInMips 1
         macro reset "sysbus LoadHEX $bin"
@@ -214,6 +277,9 @@ mod tests {
         vec![
             Connection::Uart(UartConnection {
                 name: ConnectionName::new_canonicalize("foo-uart").unwrap(),
+            }),
+            Connection::Uart(UartConnection {
+                name: ConnectionName::new_canonicalize("foo-uart-socket").unwrap(),
             }),
             Connection::Gpio(GpioConnection {
                 name: ConnectionName::new_canonicalize("foo-gpio").unwrap(),
@@ -244,6 +310,15 @@ mod tests {
                             interface: InterfaceName::new_canonicalize("sysbus.gpioPortA").unwrap(),
                             properties: ConnectorProperties::Gpio(GpioConnectorProperties {
                                 source_pin: Some(2),
+                                ..Default::default()
+                            }),
+                        },
+                        MachineConnector {
+                            name: ConnectionName::new_canonicalize("foo-uart-socket").unwrap(),
+                            interface: InterfaceName::new_canonicalize("sysbus.usart2").unwrap(),
+                            properties: ConnectorProperties::Uart(UartConnectorProperties {
+                                port: Some(1234),
+                                emit_config: Some(false),
                                 ..Default::default()
                             }),
                         },

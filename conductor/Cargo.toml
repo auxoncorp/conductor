@@ -30,10 +30,10 @@ ring = { version = "0.16.20", features = ["std"] }
 data-encoding = "2.3.3"
 regex = "1.8"
 lazy_static = "1.4"
+indoc = "2"
 
 [dev-dependencies]
 tracing-test = "0.2"
 assert_cmd = "2.0.10"
-indoc = "2"
 pretty_assertions = "1"
 tempfile = "3"
