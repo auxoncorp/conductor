@@ -640,7 +640,7 @@ impl Container {
                     host_config: Some(bollard::models::HostConfig {
                         network_mode: Some("host".to_owned()),
                         // TODO - only need CAP_NET_ADMIN if dealing with TUN/TAP interfaces
-                        //cap_add: Some(vec!["NET_ADMIN".to_owned()]),
+                        cap_add: Some(vec!["NET_ADMIN".to_owned()]),
                         mounts,
                         devices,
                         device_requests,
@@ -661,13 +661,12 @@ impl Container {
 
                 let container = client
                     .create_container::<&str, _>(
-                        None, // disabled until deleting works
-                        /*self.name
-                        .as_ref()
-                        .map(|n| container::CreateContainerOptions {
-                            name: n.clone(),
-                            ..Default::default()
-                        })*/
+                        self.name
+                            .as_ref()
+                            .map(|n| container::CreateContainerOptions {
+                                name: n.as_str(),
+                                ..Default::default()
+                            }),
                         container_config,
                     )
                     .await?;
