@@ -195,22 +195,17 @@ impl<N: Component + fmt::Display + Clone> ComponentGraph<N> {
         neighbors
     }
 
-    pub fn write_dot<W: io::Write>(
-        &self,
-        color: bool,
-        directed: bool,
-        out: &mut W,
-    ) -> io::Result<()> {
-        let connection_colors: BTreeMap<ConnectionName, Color> = self
-            .connections_to_components
+    fn connection_colors(&self) -> BTreeMap<ConnectionName, Color> {
+        self.connections_to_components
             .keys()
             .cloned()
             .enumerate()
             .map(|(idx, name)| (name, CATEGORY10[idx % CATEGORY10.len()]))
-            .collect();
+            .collect()
+    }
 
-        let component_colors: BTreeMap<ComponentName, Color> = self
-            .components_by_container
+    fn component_colors(&self) -> BTreeMap<ComponentName, Color> {
+        self.components_by_container
             .iter()
             .enumerate()
             .flat_map(|(idx, cont)| {
@@ -219,7 +214,109 @@ impl<N: Component + fmt::Display + Clone> ComponentGraph<N> {
                     .cloned()
                     .map(move |name| (name, CATEGORY10[idx % CATEGORY10.len()]))
             })
-            .collect();
+            .collect()
+    }
+
+    // NOTE:
+    // mermaid doesn't currently support backwards arrows (some hacks exist, but change the
+    // layout), so we don't always generate the same layout with directed links
+    //   - https://github.com/mermaid-js/mermaid/issues/3208
+    pub fn write_mermaid<W: io::Write>(
+        &self,
+        color: bool,
+        directed: bool,
+        out: &mut W,
+    ) -> io::Result<()> {
+        let connection_colors = self.connection_colors();
+        let component_colors = self.component_colors();
+
+        let orientation = "TD";
+        let mm_string = |name: &str| -> String { name.replace('<', "&lt;").replace('>', "&gt;") };
+
+        writeln!(out, "graph {orientation}")?;
+
+        let mut node_styles = Vec::new();
+        for node_idx in self.g.node_indices() {
+            let comp = &self.g[node_idx];
+            let node_idx = node_idx.index();
+            let node_text = mm_string(comp.to_string().as_str());
+            let node_color = component_colors.get(&comp.name()).unwrap_or(&DEFAULT_COLOR);
+            if color {
+                node_styles.push(format!("style n{node_idx} stroke:#{node_color:X}"));
+            }
+            writeln!(out, "    n{node_idx}(\"{node_text}\")")?;
+        }
+
+        writeln!(out)?;
+
+        let mut link_styles = Vec::new();
+        for edge_ref in self.g.edge_references() {
+            let connection = edge_ref.weight();
+            let mut src_node_idx = edge_ref.source().index();
+            let mut dst_node_idx = edge_ref.target().index();
+            let link_text = mm_string(connection.to_string().as_str());
+            let link = if !directed {
+                "---"
+            } else if connection.kind().is_symmetrical() {
+                "<-->"
+            } else {
+                let src_comp = &self.g[edge_ref.source()];
+                let link = src_comp
+                    .connectors()
+                    .iter()
+                    .find_map(|c| {
+                        if c.name() == connection.name() {
+                            Some(match c.is_asymmetrical_initiator() {
+                                Some(true) => "-->",
+                                Some(false) => {
+                                    // TODO - add backwards arrow once supported
+                                    // for now, we swap src/dst
+                                    src_node_idx = dst_node_idx;
+                                    dst_node_idx = edge_ref.source().index();
+                                    "-->"
+                                }
+                                None => "<-->",
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .unwrap_or("<-->");
+
+                link
+            };
+            if color {
+                let link_style_index = link_styles.len();
+                let edge_color = connection_colors
+                    .get(connection.name())
+                    .unwrap_or(&DEFAULT_COLOR);
+                link_styles.push(format!(
+                    "linkStyle {link_style_index} stroke:#{edge_color:X}"
+                ));
+            }
+
+            writeln!(
+                out,
+                "    n{src_node_idx}{link}|\"{link_text}\"|n{dst_node_idx}"
+            )?;
+        }
+
+        // node and link styles are generated at the end
+        for s in node_styles.iter().chain(link_styles.iter()) {
+            writeln!(out, "{s}")?;
+        }
+
+        Ok(())
+    }
+
+    pub fn write_dot<W: io::Write>(
+        &self,
+        color: bool,
+        directed: bool,
+        out: &mut W,
+    ) -> io::Result<()> {
+        let connection_colors = self.connection_colors();
+        let component_colors = self.component_colors();
 
         let get_node_attributes = |_g: &InnerGraph<N>, node_ref: (NodeIndex, &N)| {
             if color {

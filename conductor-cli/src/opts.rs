@@ -1,5 +1,5 @@
 use clap::Parser;
-use std::path::PathBuf;
+use std::{path::PathBuf, str::FromStr};
 
 pub fn parse_args() -> Args {
     Args::parse()
@@ -65,6 +65,10 @@ pub enum Export {
     Graph {
         #[command(flatten)]
         common: CommonSystemOptions,
+
+        /// Graph format to use
+        #[arg(short = 'f', long)]
+        format: GraphFormat,
 
         /// Include color attributes for the nodes based on
         /// which container they belong to
@@ -140,6 +144,28 @@ impl CommonSystemOptions {
             conductor::System::try_from_config_path(config).await
         } else {
             conductor::System::try_from_working_directory().await
+        }
+    }
+}
+
+#[derive(Parser, Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Default)]
+pub enum GraphFormat {
+    /// Graphviz dot format
+    #[default]
+    Dot,
+
+    /// Mermaid format
+    Mermaid,
+}
+
+impl FromStr for GraphFormat {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "dot" => Ok(GraphFormat::Dot),
+            "mermaid" => Ok(GraphFormat::Mermaid),
+            _ => Err(format!("'{s}' is not a valid GraphFormat kind")),
         }
     }
 }
