@@ -142,14 +142,12 @@ pub(crate) fn external_network_teardown_script_content(
 ) -> String {
     const PRE: &str = indoc::indoc! {r#"
         #!/usr/bin/env bash
-        set -euo pipefail
+        # We're in the container, treat these as idempotent
+        #set -euo pipefail
     "#};
     let mut script = String::new();
     script.push_str(PRE);
     for (tap, bridge) in taps_to_bridges.iter() {
-        script.push_str(&format!("brctl delif {bridge} {tap}\n"));
-        script.push_str(&format!("ip link set dev {tap} down\n"));
-        script.push_str(&format!("ip tuntap del {tap} mode tap\n"));
         script.push_str(&format!(
             indoc::indoc! {r#"
                 brctl delif {bridge} {tap}
