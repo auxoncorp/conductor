@@ -2,7 +2,7 @@ use anyhow::Result;
 use std::borrow::Cow;
 use std::{collections::BTreeMap, fs, path::Path};
 
-use crate::opts::{self, Build, Check, Start};
+use crate::opts::{self, Build, Check, GraphFormat, Start};
 use conductor::*;
 
 pub async fn handle(s: opts::System) -> Result<()> {
@@ -24,13 +24,17 @@ pub async fn handle(s: opts::System) -> Result<()> {
         opts::System::Export(export) => match export {
             opts::Export::Graph {
                 common,
+                format,
                 color,
                 directed,
             } => {
                 let system = common.resolve_system().await?;
                 let graph = system.graph()?;
                 let mut stdout = std::io::stdout().lock();
-                graph.write_dot(color, directed, &mut stdout)?;
+                match format {
+                    GraphFormat::Dot => graph.write_dot(color, directed, &mut stdout)?,
+                    GraphFormat::Mermaid => graph.write_mermaid(color, directed, &mut stdout)?,
+                }
             }
             opts::Export::DeploymentPlan {
                 common,
