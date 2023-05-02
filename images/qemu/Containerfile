@@ -1,0 +1,32 @@
+FROM docker.io/ubuntu:jammy
+
+ENV NVIDIA_VISIBLE_DEVICES \
+   ${NVIDIA_VISIBLE_DEVICES:-all}
+ENV NVIDIA_DRIVER_CAPABILITIES \
+   ${NVIDIA_DRIVER_CAPABILITIES:+$NVIDIA_DRIVER_CAPABILITIES,}graphics
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG QEMU_VERSION=8.0.0
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    vim \
+    wget \
+    pkg-config \
+    screen \
+    policykit-1 \
+    libc6-dev \
+    python3 \
+    python3-pip \
+    iproute2 \
+    bridge-utils
+
+RUN apt-get install -y qemu-efi cloud-image-utils
+RUN sed -Ei 's/^# deb-src /deb-src /' /etc/apt/sources.list
+RUN apt-get update && apt-get build-dep -y qemu qemu-system-arm qemu-system-s390x qemu-system-x86
+
+RUN wget --no-verbose --quiet https://download.qemu.org/qemu-${QEMU_VERSION}.tar.xz \
+    -O /usr/local/src/qemu-${QEMU_VERSION}.tar.xz
+RUN cd /usr/local/src && tar xvJf qemu-${QEMU_VERSION}.tar.xz
+RUN cd /usr/local/src/qemu-${QEMU_VERSION} && ./configure \
+    --target-list=aarch64-softmmu,aarch64-linux-user,arm-softmmu,arm-linux-user,s390x-softmmu,s390x-linux-user,x86_64-softmmu,x86_64-linux-user
+RUN cd /usr/local/src/qemu-${QEMU_VERSION} && make -j && make install
