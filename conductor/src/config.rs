@@ -580,6 +580,21 @@ impl Config {
                             )
                             .into());
                         }
+                        if let Some(p) = gp.plugin_path.as_mut() {
+                            if p.is_relative() {
+                                *p = cfg_dir.join(p.clone());
+                            }
+                        }
+                        if let Some(p) = gp.resource_path.as_mut() {
+                            if p.is_relative() {
+                                *p = cfg_dir.join(p.clone());
+                            }
+                        }
+                        if let Some(p) = gp.gui_config_path.as_mut() {
+                            if p.is_relative() {
+                                *p = cfg_dir.join(p.clone());
+                            }
+                        }
                     }
                 }
 

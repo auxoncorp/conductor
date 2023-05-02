@@ -101,6 +101,8 @@ impl System {
         debug_assert!(self.containers.is_empty());
         let deployment = self.deployment()?;
 
+        /* disabled for the time being, gazebo multicast stuff gets confused by the interfaces,
+         * need to look into it more
         for n in deployment.wired_networks.iter() {
             // TODO: find a way to identify networks by more than name
             self.networks.insert(
@@ -108,6 +110,7 @@ impl System {
                 Network::builder().name(n.to_string()).resolve().await?,
             );
         }
+        */
 
         for c in deployment.gazebo_containers.iter() {
             self.new_gazebo_world(c).await?;

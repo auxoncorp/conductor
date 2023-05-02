@@ -20,9 +20,10 @@ const PARTITION_ENV_VAR: &str = "GZ_PARTITION";
 const SYS_PLUGINS_ENV_VAR: &str = "GZ_SIM_SYSTEM_PLUGIN_PATH";
 const RES_PATH_ENV_VAR: &str = "GZ_SIM_RESOURCE_PATH";
 
-// Guest-relative dirs
+// Guest-relative files/dirs
 const SYS_PLUGIN_DIR: &str = "system_plugins";
 const RES_DIR: &str = "resources";
+const GUI_CONFIG_FILE_NAME: &str = "gui.config";
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display)]
 #[display(fmt = "{}:{}", "ProviderKind::Gazebo", "self.base.name")]
@@ -43,8 +44,13 @@ impl GazeboWorld {
     pub(crate) fn container_args(&self) -> Vec<String> {
         let mut args: Vec<String> = Vec::new();
         args.push("sim".to_owned());
-        // TODO - add config for "run sim on start"
-        args.push("-r".to_owned());
+        if let Some(cfg) = self.guest_gui_config_path() {
+            args.push("--gui-config".to_owned());
+            args.push(cfg.to_string_lossy().to_string());
+        }
+        if self.provider.auto_start.unwrap_or(true) {
+            args.push("-r".to_owned());
+        }
         if self.provider.headless.unwrap_or(true) {
             args.push("--headless-rendering".to_owned());
             args.push("-s".to_owned());
@@ -75,6 +81,18 @@ impl GazeboWorld {
     pub(crate) fn guest_resource_path(&self) -> Option<PathBuf> {
         if self.provider.resource_path.is_some() {
             Some(guest_component_resource_path(&self.base.name).join(RES_DIR))
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn guest_gui_config_path(&self) -> Option<PathBuf> {
+        if self.provider.gui_config_path.is_some() {
+            Some(
+                guest_component_resource_path(&self.base.name)
+                    .join(RES_DIR)
+                    .join(GUI_CONFIG_FILE_NAME),
+            )
         } else {
             None
         }

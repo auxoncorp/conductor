@@ -193,6 +193,11 @@ impl Deployment {
                                 assets.insert(host_p.clone(), guest_p)?;
                             }
 
+                            if let Some(host_p) = &gw.provider.gui_config_path {
+                                let guest_p = gw.guest_gui_config_path().unwrap();
+                                assets.insert(host_p.clone(), guest_p)?;
+                            }
+
                             gazebo_containers.push(DeploymentContainer {
                                 name: ContainerRuntimeName::new_single(
                                     &system_name,
