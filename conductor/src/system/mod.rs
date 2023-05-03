@@ -1,7 +1,7 @@
 use crate::{
     component::Component,
     config::{ConnectorProperties, MachineConnector},
-    containers::{Container, Network},
+    containers::{Container, ContainerBuilder, Network},
     provider::{
         container::ContainerMachine, gazebo::GazeboWorld, qemu::QemuMachine, renode::RenodeMachine,
     },
@@ -151,7 +151,8 @@ impl System {
         let name = deployment.name.clone();
         let mut cmd = deployment.args.clone();
         cmd.insert(0, deployment.command.clone());
-        let mut container = Container::from_internal_image(&deployment.world().base_image())
+        let mut container = ContainerBuilder::default()
+            .with_image(deployment.world().base_image())
             .with_name(name.as_str())
             .with_cmd(cmd)
             .with_env(&deployment.environment_variables.0)
@@ -179,7 +180,8 @@ impl System {
         let name = deployment.name.clone();
         let mut cmd = deployment.args.clone();
         cmd.insert(0, deployment.command.clone());
-        let mut container = Container::from_internal_image(&deployment.base_image())
+        let mut container = ContainerBuilder::default()
+            .with_image(deployment.base_image())
             .with_name(name.as_str())
             .with_cmd(cmd)
             .with_env(&deployment.environment_variables.0)
@@ -208,7 +210,8 @@ impl System {
         let machine = deployment.machine();
         let mut cmd = deployment.args.clone();
         cmd.insert(0, deployment.command.clone());
-        let mut container = Container::from_internal_image(&machine.base_image())
+        let mut container = ContainerBuilder::default()
+            .with_image(machine.base_image())
             .with_name(name.as_str())
             .with_cmd(cmd)
             .with_env(&deployment.environment_variables.0)
