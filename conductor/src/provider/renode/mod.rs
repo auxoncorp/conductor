@@ -18,10 +18,7 @@ const RESC_FILE_NAME: &str = "renode_script.resc";
 const NET_SETUP_FILE_NAME: &str = "net_setup.sh";
 const NET_TEARDOWN_FILE_NAME: &str = "net_teardown.sh";
 
-// TODO - change this
-// build it from the root for now:
-//   docker build -f images/renode/Containerfile -t 'conductor_renode:latest' images/renode/
-const DEFAULT_BASE_IMAGE: &str = "renode";
+const DEFAULT_BASE_IMAGE: &str = "ghcr.io/auxoncorp/conductor-renode";
 
 // NOTE: this will be expanded to deal with URIs and other types later
 //pub enum Executable { Elf(PathBuf), ... }

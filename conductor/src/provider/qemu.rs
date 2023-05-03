@@ -7,10 +7,7 @@ use std::path::PathBuf;
 // if bin is ELF, see what kind it is
 const COMMAND: &str = "qemu-system-arm";
 
-// TODO - change this
-// build it from the root for now:
-//   docker build -f images/qemu/Containerfile -t 'conductor_qemu:latest' images/qemu/
-const DEFAULT_BASE_IMAGE: &str = "qemu";
+const DEFAULT_BASE_IMAGE: &str = "ghcr.io/auxoncorp/conductor-qemu";
 
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display)]
 #[display(fmt = "{}:{}", "ProviderKind::Qemu", "self.base.name")]
