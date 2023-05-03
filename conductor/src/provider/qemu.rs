@@ -57,7 +57,7 @@ impl QemuMachine {
 
     pub(crate) fn guest_bin(&self) -> PathBuf {
         // TODO - unwrap ok, already checked by config
-        let bin_file_name = self.base.bin.file_name().unwrap();
+        let bin_file_name = self.base.bin.as_ref().and_then(|b| b.file_name()).unwrap();
         guest_component_resource_path(&self.base.name).join(bin_file_name)
     }
 }

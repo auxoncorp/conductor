@@ -296,7 +296,7 @@ mod tests {
                 guest_bin_shared: false,
                 base: BaseMachine {
                     name: MachineName::new_canonicalize("my-m0").unwrap(),
-                    bin: PathBuf::from("path/to/m0.bin"),
+                    bin: PathBuf::from("path/to/m0.bin").into(),
                     environment_variables: Default::default(),
                     assets: Default::default(),
                     connectors: vec![
@@ -341,13 +341,14 @@ mod tests {
                 platform_descriptions: vec![PlatformDescription::ProvidedByRenode(PathBuf::from(
                     "platforms/cpus/stm32f429.repl",
                 ))],
+                executable: PathBuf::from("path/to/m0.bin").into(),
                 tap_devices: Default::default(),
             },
             RenodeMachine {
                 guest_bin_shared: false,
                 base: BaseMachine {
                     name: MachineName::new_canonicalize("my-m1").unwrap(),
-                    bin: PathBuf::from("path/to/m1.bin"),
+                    bin: PathBuf::from("path/to/m1.bin").into(),
                     environment_variables: Default::default(),
                     assets: Default::default(),
                     connectors: vec![
@@ -383,6 +384,7 @@ mod tests {
                 platform_descriptions: vec![PlatformDescription::ProvidedByRenode(PathBuf::from(
                     "platforms/cpus/stm32f411.repl",
                 ))],
+                executable: PathBuf::from("path/to/m1.bin").into(),
                 tap_devices: Default::default(),
             },
         ]

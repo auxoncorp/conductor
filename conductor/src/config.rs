@@ -136,7 +136,7 @@ pub struct Machine {
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub struct BaseMachine {
     pub name: MachineName,
-    pub bin: PathBuf,
+    pub bin: Option<PathBuf>,
     pub environment_variables: EnvironmentVariableKeyValuePairs,
     pub assets: HostToGuestAssetPaths,
     pub connectors: Vec<MachineConnector>,
@@ -347,14 +347,22 @@ impl TryFrom<(conductor_config::Machine, &BTreeSet<Connection>)> for Machine {
             .as_ref()
             .and_then(MachineName::new_canonicalize)
             .ok_or(ConfigError::EmptyMachineName)?;
-        // TODO - this will change
-        // we should also support url/uri too
-        let bin = value
-            .bin
-            .ok_or_else(|| ConfigError::NoMachineBin(name.clone()))?;
-        let provider = value
+        let provider: MachineProvider = value
             .provider
-            .ok_or_else(|| ConfigError::NoMachineProvider(name.clone()))?;
+            .ok_or_else(|| ConfigError::NoMachineProvider(name.clone()))?
+            .into();
+        // TODO - the expectation and way we handle bin fields on a per-component
+        // basis will change
+        let bin = if matches!(provider.kind(), ProviderKind::Container) {
+            value.bin
+        } else {
+            // These providers require a bin field
+            Some(
+                value
+                    .bin
+                    .ok_or_else(|| ConfigError::NoMachineBin(name.clone()))?,
+            )
+        };
         let mut connectors = Vec::with_capacity(value.connectors.len());
         for c in value.connectors.into_iter() {
             let c = MachineConnector::try_from((c, connections))?;
@@ -371,7 +379,7 @@ impl TryFrom<(conductor_config::Machine, &BTreeSet<Connection>)> for Machine {
                 assets: value.assets.into(),
                 connectors,
             },
-            provider: provider.into(),
+            provider,
         })
     }
 }
@@ -636,15 +644,15 @@ impl Config {
 
             // Convert relative paths on the host to absolute, where possible
             if let Some(cfg_dir) = cfg_dir {
-                if m.base.bin.is_relative() {
-                    m.base.bin = cfg_dir.join(m.base.bin);
-                }
-                if !m.base.bin.exists() {
-                    return Err(ConfigError::NonExistentMachineBin(
-                        m.base.bin.clone(),
-                        m.base.name,
-                    )
-                    .into());
+                if let Some(bin) = m.base.bin.as_mut() {
+                    if bin.is_relative() {
+                        *bin = cfg_dir.join(bin.clone());
+                    }
+                    if !bin.exists() {
+                        return Err(
+                            ConfigError::NonExistentMachineBin(bin.clone(), m.base.name).into()
+                        );
+                    }
                 }
 
                 let assets = m.base.assets.0.clone();

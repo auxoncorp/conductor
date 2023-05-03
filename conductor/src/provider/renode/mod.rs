@@ -4,7 +4,7 @@ use crate::{
     types::{BridgeName, ConnectionName, ProviderKind, TapDevice},
 };
 use conductor_config::RenodeMachineProvider;
-use derive_more::Display;
+use derive_more::{AsRef, Deref, Display, From};
 use std::{collections::BTreeMap, path::PathBuf};
 
 pub use platform_description::PlatformDescription;
@@ -23,6 +23,11 @@ const NET_TEARDOWN_FILE_NAME: &str = "net_teardown.sh";
 //   docker build -f images/renode/Containerfile -t 'conductor_renode:latest' images/renode/
 const DEFAULT_BASE_IMAGE: &str = "renode";
 
+// NOTE: this will be expanded to deal with URIs and other types later
+//pub enum Executable { Elf(PathBuf), ... }
+#[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, AsRef, Deref, From)]
+pub struct Executable(pub PathBuf);
+
 #[derive(Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug, Display)]
 #[display(fmt = "{}:{}", "ProviderKind::Renode", "self.base.name")]
 pub struct RenodeMachine {
@@ -36,6 +41,7 @@ pub struct RenodeMachine {
     /// These platform descriptions are constructed from the
     /// config-level string descriptions found in provider.resc.platform_descriptions
     pub platform_descriptions: Vec<PlatformDescription>,
+    pub executable: Executable,
     pub tap_devices: BTreeMap<ConnectionName, TapDevice>,
 }
 
@@ -46,7 +52,7 @@ impl RenodeMachine {
 
     pub(crate) fn guest_bin(&self) -> PathBuf {
         // TODO - unwrap ok, already checked by config
-        let bin_file_name = self.base.bin.file_name().unwrap();
+        let bin_file_name = self.executable.file_name().unwrap();
         let base = if self.guest_bin_shared {
             PathBuf::from(GUEST_RESOURCES_PATH)
         } else {
