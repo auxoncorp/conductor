@@ -224,11 +224,13 @@ impl Deployment {
                                 .map(|pd| PlatformDescription::from_config(pd))
                                 .collect::<Result<Vec<PlatformDescription>, _>>()?;
 
+                            let executable = m.base.bin.as_ref().unwrap().clone().into();
                             let mut rm = RenodeMachine {
                                 guest_bin_shared: false,
                                 base: m.base,
                                 provider: p,
                                 platform_descriptions,
+                                executable,
                                 // TODO - each network kind connection to a different
                                 // container (or host) gets a tap device
                                 // name is conn_name_tap or w/e
@@ -254,13 +256,13 @@ impl Deployment {
                             if renode_container
                                 .assets
                                 .0
-                                .insert(rm.base.bin.clone(), rm.guest_bin())
+                                .insert(rm.executable.0.clone(), rm.guest_bin())
                                 .is_some()
                             {
                                 // Multiple machines on this container share this bin
 
                                 // Remove the entry
-                                renode_container.assets.0.remove(&rm.base.bin);
+                                renode_container.assets.0.remove(rm.executable.as_ref());
 
                                 // Find the previous machine, set the shared path to true
                                 renode_container
@@ -274,7 +276,7 @@ impl Deployment {
                                 renode_container
                                     .assets
                                     .0
-                                    .insert(rm.base.bin.clone(), rm.guest_bin());
+                                    .insert(rm.executable.0.clone(), rm.guest_bin());
                             }
 
                             for (idx, network_connection) in
@@ -306,7 +308,9 @@ impl Deployment {
 
                             // Add bin path to assets
                             let mut assets = qm.base.assets.clone();
-                            assets.0.insert(qm.base.bin.clone(), qm.guest_bin());
+                            assets
+                                .0
+                                .insert(qm.base.bin.as_ref().unwrap().clone(), qm.guest_bin());
 
                             // Add guest bin path to args
                             let mut args = qm.container_args();
