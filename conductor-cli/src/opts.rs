@@ -1,4 +1,5 @@
 use clap::Parser;
+use conductor::types::MachineName;
 use std::{path::PathBuf, str::FromStr};
 
 pub fn parse_args() -> Args {
@@ -29,6 +30,7 @@ pub enum System {
     Build(Build),
     Start(Start),
     Stop(Stop),
+    Stats(SystemStats),
     #[command(subcommand)]
     Export(Export),
 }
@@ -57,6 +59,13 @@ pub struct Start {
 /// Tear down a system
 #[derive(Parser, Debug)]
 pub struct Stop {}
+
+/// Show stats for each of the components in a system
+#[derive(Parser, Debug)]
+pub struct SystemStats {
+    #[command(flatten)]
+    pub common: CommonSystemOptions,
+}
 
 /// Export a system
 #[derive(Parser, Debug)]
@@ -98,6 +107,7 @@ pub enum Machine {
     List(List),
     Inspect(Inspect),
     Attach(Attach),
+    Stats(Stats),
     Dump(Dump),
 }
 
@@ -121,7 +131,16 @@ pub struct Attach {
     #[command(flatten)]
     pub system: CommonSystemOptions,
 
-    pub machine_name: String,
+    pub machine_name: MachineName,
+}
+
+/// Print machine stats
+#[derive(Parser, Debug)]
+pub struct Stats {
+    #[command(flatten)]
+    pub system: CommonSystemOptions,
+
+    pub machine_name: MachineName,
 }
 
 /// Dump a machine configuration

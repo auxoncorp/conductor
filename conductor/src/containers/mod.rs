@@ -1,6 +1,6 @@
 use anyhow::{anyhow, bail, Context as _, Result};
 use bollard::{
-    container::{self, AttachContainerOptions, ListContainersOptions},
+    container::{self, AttachContainerOptions, ListContainersOptions, StatsOptions},
     image::{BuildImageOptions, CreateImageOptions, ListImagesOptions},
     models::{DeviceMapping, DeviceRequest, EndpointSettings, Mount, MountTypeEnum},
     Docker,
@@ -65,6 +65,18 @@ pub enum ContainerState {
         image_id: String,
         container_id: String,
     },
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct ContainerStats {
+    pub cpu_percentage: f64,
+    pub mem_usage: f64,
+    pub mem_limit: f64,
+    pub mem_percentage: f64,
+    pub net_rx: f64,
+    pub net_tx: f64,
+    pub block_rx: f64,
+    pub block_tx: f64,
 }
 
 // builder-ish things
@@ -739,6 +751,111 @@ impl Container {
                     .await?;
 
                 Ok(io)
+            }
+        }
+    }
+
+    #[instrument]
+    pub async fn stats(&self) -> Result<ContainerStats> {
+        let stats = self.stats_inner().await?;
+
+        let prev_cpu = stats.precpu_stats.cpu_usage.total_usage as f64;
+        let prev_sys = stats.precpu_stats.system_cpu_usage.unwrap_or(0) as f64;
+        let cpu_delta = stats.cpu_stats.cpu_usage.total_usage as f64 - prev_cpu;
+        let sys_delta = stats.cpu_stats.system_cpu_usage.unwrap_or(0) as f64 - prev_sys;
+        let num_online_cpus = stats.cpu_stats.online_cpus.unwrap_or(0);
+        let online_cpus = if num_online_cpus == 0 {
+            stats
+                .cpu_stats
+                .cpu_usage
+                .percpu_usage
+                .map(|v| v.len())
+                .unwrap_or(1) as f64
+        } else {
+            num_online_cpus as f64
+        };
+        let cpu_percentage = if sys_delta > 0.0 && cpu_delta > 0.0 {
+            (cpu_delta / sys_delta) * online_cpus * 100.0
+        } else {
+            0.0
+        };
+
+        let mem_usage = stats.memory_stats.usage.unwrap_or(0);
+        let mem_limit = stats.memory_stats.limit.unwrap_or(0);
+        let mem_percentage = if mem_limit != 0 {
+            (mem_usage as f64 / mem_limit as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        let (net_rx, net_tx) = stats
+            .networks
+            .as_ref()
+            .map(|nets| {
+                nets.values()
+                    .map(|n| (n.rx_bytes, n.tx_bytes))
+                    .fold((0, 0), |(net_rx, net_tx), (rx, tx)| {
+                        (net_rx + rx, net_tx + tx)
+                    })
+            })
+            .unwrap_or((0, 0));
+
+        let (block_rx, block_tx) = stats
+            .blkio_stats
+            .io_service_bytes_recursive
+            .as_ref()
+            .map(|blks| {
+                blks.iter()
+                    .map(|s| match s.op.as_bytes()[0] {
+                        b'r' | b'R' => (s.value, 0),
+                        b'w' | b'W' => (0, s.value),
+                        _ => (0, 0),
+                    })
+                    .fold((0, 0), |(blk_rx, blk_tx), (rx, tx)| {
+                        (blk_rx + rx, blk_tx + tx)
+                    })
+            })
+            .unwrap_or((0, 0));
+
+        Ok(ContainerStats {
+            cpu_percentage,
+            mem_usage: mem_usage as f64,
+            mem_limit: mem_limit as f64,
+            mem_percentage,
+            net_rx: net_rx as f64,
+            net_tx: net_tx as f64,
+            block_rx: block_rx as f64,
+            block_tx: block_tx as f64,
+        })
+    }
+
+    #[instrument]
+    async fn stats_inner(&self) -> Result<bollard::container::Stats> {
+        let client = self.client().await;
+
+        match &self.state {
+            ContainerState::Defined => {
+                bail!("machine not built or running, can't get stats");
+            }
+            ContainerState::Built { .. } => {
+                bail!("machine not running, can't get stats");
+            }
+            ContainerState::Running { container_id, .. } => {
+                trace!(container_id, "get container stats");
+                let mut stream = client.stats(
+                    container_id,
+                    Some(StatsOptions {
+                        stream: false,
+                        one_shot: false,
+                    }),
+                );
+                match stream.next().await {
+                    None => bail!("Failed to stream container stats"),
+                    Some(s) => {
+                        let stats = s?;
+                        Ok(stats)
+                    }
+                }
             }
         }
     }

@@ -1,8 +1,12 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use std::borrow::Cow;
+use std::io::{self, Write};
 use std::{collections::BTreeMap, fs, path::Path};
+use tabwriter::TabWriter;
 
-use crate::opts::{self, Build, Check, GraphFormat, Start};
+use crate::opts::{self, Build, Check, GraphFormat, Start, SystemStats};
+use crate::stats::ContainerAndStats;
+use conductor::types::ContainerRuntimeName;
 use conductor::*;
 
 pub async fn handle(s: opts::System) -> Result<()> {
@@ -72,6 +76,36 @@ pub async fn handle(s: opts::System) -> Result<()> {
             let mut system = common.resolve_system().await?;
             system.start().await?;
             println!("system started");
+        }
+        opts::System::Stats(SystemStats { common }) => {
+            let system = common.resolve_system().await?;
+            let mut tw = TabWriter::new(io::stdout());
+            writeln!(tw, "{}", ContainerAndStats::TABWRITER_HEADER)?;
+            for container in system.containers() {
+                let (_system_name, component_names) = container
+                    .name()
+                    .and_then(ContainerRuntimeName::extract_components)
+                    .ok_or_else(|| {
+                        anyhow!("Failed to resolve the system component runtime container names")
+                    })?;
+
+                let name = if component_names.len() == 1 {
+                    component_names[0].to_string()
+                } else {
+                    format!(
+                        "[{}]",
+                        component_names
+                            .iter()
+                            .map(|c| c.as_str())
+                            .collect::<Vec<&str>>()
+                            .join(", ")
+                    )
+                };
+
+                let stats = ContainerAndStats::new(name, container.stats().await?);
+                stats.tabwriter_writeln(&mut tw)?;
+            }
+            tw.flush()?;
         }
         _ => todo!("system"),
     }

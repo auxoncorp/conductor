@@ -1,5 +1,6 @@
 mod commands;
 mod opts;
+mod stats;
 
 use anyhow::Result;
 use opts::Command;
