@@ -1,0 +1,8 @@
+name = 'noisy system'
+
+[[machine]]
+name = "noisy application"
+bin = "application.sh"
+    [machine.provider.container]
+    context = '.'
+    image = "noisy"

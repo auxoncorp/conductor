@@ -314,7 +314,6 @@ impl MachineLog {
             .saturating_sub(r.height.into())
             .try_into()
             .unwrap_or(u16::MAX);
-        eprintln!("autoscroll offset: {offset}");
         let mut scroll = self.scroll.unwrap_or(offset);
         // limit scroll to (wrapped) log lines & enable auto scroll if scrolled to/past end
         if scroll >= offset {
