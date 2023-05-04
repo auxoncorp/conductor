@@ -40,6 +40,21 @@ pub struct ContainerRuntimeName(String);
 impl ContainerRuntimeName {
     const DELIMITER: &'static str = "___";
 
+    pub fn extract_components<S: AsRef<str>>(s: S) -> Option<(SystemName, Vec<ComponentName>)> {
+        let parts: Vec<&str> = s.as_ref().split(Self::DELIMITER).collect();
+        if parts.len() < 2 {
+            None
+        } else {
+            let sys_name = SystemName::new_canonicalize(parts[0])?;
+            let mut comps = Vec::new();
+            for comp_name in &parts[1..] {
+                let c = ComponentName::new_canonicalize(comp_name)?;
+                comps.push(c);
+            }
+            Some((sys_name, comps))
+        }
+    }
+
     pub(crate) fn new_single(system: &SystemName, component: &ComponentName) -> Self {
         Self(format!("{system}{}{component}", Self::DELIMITER))
     }
@@ -245,6 +260,15 @@ macro_rules! name_newtype {
                 } else {
                     Some(Self(inner))
                 }
+            }
+        }
+
+        impl std::str::FromStr for $t {
+            type Err = String;
+
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                Self::new_canonicalize(s)
+                    .ok_or_else(|| format!("Cannot construct a {} from '{s}'", stringify!($t)))
             }
         }
     };

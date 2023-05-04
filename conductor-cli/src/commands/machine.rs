@@ -1,7 +1,10 @@
-use crate::opts::{Attach, Dump, Inspect, List, Machine};
+use crate::opts::{Attach, Dump, Inspect, List, Machine, Stats};
+use crate::stats::ContainerAndStats;
 use anyhow::Result;
 use conductor::containers::LogOutput;
 use futures_util::StreamExt;
+use std::io::{self, Write};
+use tabwriter::TabWriter;
 use tokio::io::AsyncWriteExt;
 
 pub async fn handle(s: Machine) -> Result<()> {
@@ -53,6 +56,33 @@ pub async fn handle(s: Machine) -> Result<()> {
                             LogOutput::Console { message } => stdout.write_all(&message).await?,
                         }
                     }
+
+                    break;
+                }
+            }
+        }
+        Machine::Stats(Stats {
+            system,
+            machine_name,
+        }) => {
+            let system = system.resolve_system().await?;
+
+            let container_runtime_name =
+                system.container_runtime_name_for_machine_named(&machine_name)?;
+
+            for container in system.containers() {
+                if container
+                    .name()
+                    .map(|n| n == container_runtime_name.as_str())
+                    == Some(true)
+                {
+                    let stats =
+                        ContainerAndStats::new(machine_name.into(), container.stats().await?);
+
+                    let mut tw = TabWriter::new(io::stdout());
+                    writeln!(tw, "{}", ContainerAndStats::TABWRITER_HEADER)?;
+                    stats.tabwriter_writeln(&mut tw)?;
+                    tw.flush()?;
 
                     break;
                 }

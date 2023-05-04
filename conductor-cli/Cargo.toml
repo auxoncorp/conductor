@@ -29,6 +29,8 @@ tokio = { version = "1", features = ["full"] }
 tracing = "0.1.37"
 tracing-subscriber = { version = "0.3.16", features = ["fmt", "env-filter"] }
 serde_json = "1.0"
+tabwriter = { version = "1", features = ["ansi_formatting"] }
+human_bytes = "0.4"
 
 [dev-dependencies]
 assert_cmd = "2"
