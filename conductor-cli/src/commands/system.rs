@@ -4,11 +4,8 @@ use std::io::{self, Write};
 use std::{collections::BTreeMap, fs, path::Path};
 use tabwriter::TabWriter;
 
-use crate::{
-    opts::{self, Build, Check, GraphFormat, Start, SystemStats, Watch},
-    stats::ContainerAndStats,
-    tui::watch::WatchApp,
-};
+use crate::opts::{self, Build, Check, GraphFormat, Start, SystemStats};
+use crate::stats::ContainerAndStats;
 use conductor::types::ContainerRuntimeName;
 use conductor::*;
 
@@ -109,11 +106,6 @@ pub async fn handle(s: opts::System) -> Result<()> {
                 stats.tabwriter_writeln(&mut tw)?;
             }
             tw.flush()?;
-        }
-        opts::System::Watch(Watch { common }) => {
-            let system = common.resolve_system().await?;
-
-            WatchApp::new(system).run().await?;
         }
         _ => todo!("system"),
     }

@@ -33,7 +33,6 @@ pub enum System {
     Stats(SystemStats),
     #[command(subcommand)]
     Export(Export),
-    Watch(Watch),
 }
 
 /// Check a system
@@ -101,13 +100,6 @@ pub enum Export {
         #[arg(default_value = "deployment_plan")]
         output_path: PathBuf,
     },
-}
-
-/// Watch a system via a TUI
-#[derive(Parser, Debug)]
-pub struct Watch {
-    #[command(flatten)]
-    pub common: CommonSystemOptions,
 }
 
 #[derive(Parser, Debug)]
