@@ -44,13 +44,31 @@ impl WatchApp {
         }
     }
 
-    pub async fn run(&mut self) -> Result<()> {
+    pub fn setup_terminal() -> Result<Terminal<CrosstermBackend<std::io::Stdout>>> {
         // setup terminal
         enable_raw_mode()?;
         let mut stdout = io::stdout();
         execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
         let backend = CrosstermBackend::new(stdout);
-        let mut terminal = Terminal::new(backend)?;
+        Ok(Terminal::new(backend)?)
+    }
+
+    pub fn restore_terminal() -> Result<()> {
+        // restore terminal
+        disable_raw_mode()?;
+        execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
+
+        Ok(())
+    }
+
+    pub async fn run(&mut self) -> Result<()> {
+        let mut terminal = Self::setup_terminal()?;
+
+        let next_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(move |panic| {
+            Self::restore_terminal().unwrap();
+            next_hook(panic);
+        }));
 
         loop {
             terminal.draw(|f| self.render(f))?;
@@ -67,16 +85,7 @@ impl WatchApp {
             }
         }
 
-        // restore terminal
-        // TODO: catch panics in application above? update: can't. Maybe do this outside the tokio
-        // runtime so I can catch external panics? That requires quite a bit of rearchitecting of
-        // all the commands.
-        disable_raw_mode()?;
-        execute!(
-            terminal.backend_mut(),
-            LeaveAlternateScreen,
-            DisableMouseCapture
-        )?;
+        Self::restore_terminal()?;
         terminal.show_cursor()?;
 
         Ok(())
@@ -87,12 +96,30 @@ impl WatchApp {
     }
 
     async fn update(&mut self) -> Result<Option<AppEvent>> {
+        use tokio::signal::unix::SignalKind;
+
+        let mut sighup = tokio::signal::unix::signal(SignalKind::hangup())?;
+        let mut sigint = tokio::signal::unix::signal(SignalKind::interrupt())?;
+        let mut sigpipe = tokio::signal::unix::signal(SignalKind::pipe())?;
+        let mut sigquit = tokio::signal::unix::signal(SignalKind::quit())?;
+        let mut sigterm = tokio::signal::unix::signal(SignalKind::terminate())?;
+        let mut sigusr1 = tokio::signal::unix::signal(SignalKind::user_defined1())?;
+        let mut sigusr2 = tokio::signal::unix::signal(SignalKind::user_defined2())?;
+
         tokio::select! {
             res = self.window.update(&self.system) => {
                 res?;
                 Ok(None)
             },
             event = self.events.recv() => Ok(event),
+            _ = tokio::signal::ctrl_c() => Ok(Some(AppEvent::Quit)),
+            _ = sighup.recv() => panic!("hup"),
+            _ = sigint.recv() => panic!("int"),
+            _ = sigpipe.recv() => panic!("pipe"),
+            _ = sigquit.recv() => panic!("quit"),
+            _ = sigterm.recv() => panic!("term"),
+            _ = sigusr1.recv() => panic!("usr1"),
+            _ = sigusr2.recv() => panic!("usr2"),
         }
     }
 
