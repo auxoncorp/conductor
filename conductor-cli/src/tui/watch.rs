@@ -141,7 +141,7 @@ impl WatchWindow {
     fn new() -> WatchWindow {
         WatchWindow {
             machine_list: MachineList::new(),
-            log: MachineLog::new(usize::MAX),
+            log: MachineLog::new(None),
         }
     }
 
@@ -170,14 +170,14 @@ impl WatchWindow {
     }
 
     fn next_machine(&mut self) {
-        if let Some(machine_idx) = self.machine_list.next_machine() {
-            self.log = MachineLog::new(machine_idx);
+        if let Some(machine_name) = self.machine_list.next_machine() {
+            self.log = MachineLog::new(Some(machine_name.to_string()));
         }
     }
 
     fn previous_machine(&mut self) {
-        if let Some(machine_idx) = self.machine_list.previous_machine() {
-            self.log = MachineLog::new(machine_idx);
+        if let Some(machine_name) = self.machine_list.previous_machine() {
+            self.log = MachineLog::new(Some(machine_name.to_string()));
         }
     }
 
@@ -229,42 +229,39 @@ impl MachineList {
         Ok(())
     }
 
-    fn next_machine(&mut self) -> Option<usize> {
+    fn next_machine(&mut self) -> Option<&str> {
         let selection = self.state.selected().map(|s| s + 1).unwrap_or(0);
-        let selection = if selection >= self.machines.len() {
+        if selection >= self.machines.len() {
             let count = self.machines.len();
             if count == 0 {
                 None
             } else {
-                Some(count - 1)
+                Some(self.machines[count - 1].as_str())
             }
         } else {
-            Some(selection)
-        };
-
-        self.state.select(selection);
-        selection
+            self.state.select(Some(selection));
+            Some(self.machines[selection].as_str())
+        }
     }
 
-    fn previous_machine(&mut self) -> Option<usize> {
+    fn previous_machine(&mut self) -> Option<&str> {
         let selection = self
             .state
             .selected()
             .map(|s| s.saturating_sub(1))
             .unwrap_or(0);
-        let selection = if self.machines.is_empty() {
+
+        if self.machines.is_empty() {
             None
         } else {
-            Some(selection)
-        };
-
-        self.state.select(selection);
-        selection
+            self.state.select(Some(selection));
+            Some(self.machines[selection].as_str())
+        }
     }
 }
 
 struct MachineLog {
-    container_idx: usize,
+    name: Option<String>,
     log: Vec<String>,
     log_lines: usize,
     log_stream: Option<Pin<Box<dyn Stream<Item = Result<LogOutput>> + Send>>>,
@@ -274,9 +271,9 @@ struct MachineLog {
 }
 
 impl MachineLog {
-    fn new(container: usize) -> MachineLog {
+    fn new(name: Option<String>) -> MachineLog {
         MachineLog {
-            container_idx: container,
+            name,
             log: Vec::new(),
             log_lines: 0,
             log_stream: None,
@@ -326,10 +323,12 @@ impl MachineLog {
     }
 
     async fn update(&mut self, system: &System) -> Result<()> {
-        if self.container_idx == usize::MAX {
+        let Some(ref name) = self.name else {
             // No container selected, keep log_empty
             self.refresh.notified().await;
-        }
+
+            unreachable!();
+        };
 
         let log_stream = if let Some(log_stream) = &mut self.log_stream {
             log_stream
@@ -337,8 +336,9 @@ impl MachineLog {
             let container = system
                 .containers()
                 .into_iter()
-                .nth(self.container_idx)
-                .expect("valid container index");
+                // TODO: something better than checking if the full name ends with the machine name
+                .find(|&c| c.name().map(|n| n.ends_with(name)).unwrap_or(false))
+                .expect("find named container");
             let log_stream = container.attach().await?;
             self.log_stream
                 .insert(Box::pin(log_stream.output.map_err(|e| e.into())))
