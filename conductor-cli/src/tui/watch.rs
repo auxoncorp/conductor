@@ -8,8 +8,8 @@ use crossterm::{
 use futures_util::{Stream, StreamExt, TryStreamExt};
 use ratatui::{
     backend::{Backend, CrosstermBackend},
-    layout::{Constraint, Direction, Layout, Rect},
-    text::Spans,
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    text::{Span, Spans},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
     Frame, Terminal,
 };
@@ -135,6 +135,8 @@ impl WatchApp {
 struct WatchWindow {
     machine_list: MachineList,
     log: MachineLog,
+    machines_help: MachinesHelp,
+    log_help: LogHelp,
 }
 
 impl WatchWindow {
@@ -142,22 +144,36 @@ impl WatchWindow {
         WatchWindow {
             machine_list: MachineList::new(),
             log: MachineLog::new(None),
+            machines_help: MachinesHelp::new(),
+            log_help: LogHelp::new(),
         }
     }
 
     fn render<B: Backend>(&mut self, f: &mut Frame<B>) {
-        let chunks = Layout::default()
+        let vchunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Min(0), Constraint::Length(1)])
+            .split(f.size());
+
+        let main_hchunks = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(20), Constraint::Percentage(80)].as_ref())
-            .split(f.size());
+            .split(vchunks[0]);
+        let help_hchunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(20), Constraint::Percentage(80)].as_ref())
+            .split(vchunks[1]);
 
         f.render_stateful_widget(
             self.machine_list.to_widget(),
-            chunks[0],
+            main_hchunks[0],
             &mut self.machine_list.state.clone(),
         );
 
-        self.log.render(f, chunks[1]);
+        self.log.render(f, main_hchunks[1]);
+
+        self.machines_help.render(f, help_hchunks[0]);
+        self.log_help.render(f, help_hchunks[1]);
     }
 
     async fn update(&mut self, system: &System) -> Result<()> {
@@ -392,5 +408,37 @@ fn count_lines(s: &str, line_len: u16) -> usize {
         s.len() / line_len
     } else {
         (s.len() / line_len) + 1
+    }
+}
+
+struct MachinesHelp;
+
+impl MachinesHelp {
+    fn new() -> MachinesHelp {
+        MachinesHelp
+    }
+
+    fn render<B: Backend>(&mut self, f: &mut Frame<B>, r: Rect) {
+        let text = vec![Spans::from(vec![Span::raw(" ↑ / ↓ ")])];
+        let widget = Paragraph::new(text)
+            .alignment(Alignment::Center)
+            .wrap(Wrap { trim: true });
+        f.render_widget(widget, r);
+    }
+}
+
+struct LogHelp;
+
+impl LogHelp {
+    fn new() -> LogHelp {
+        LogHelp
+    }
+
+    fn render<B: Backend>(&mut self, f: &mut Frame<B>, r: Rect) {
+        let text = vec![Spans::from(vec![Span::raw(" PgUp / PgDn ")])];
+        let widget = Paragraph::new(text)
+            .alignment(Alignment::Center)
+            .wrap(Wrap { trim: true });
+        f.render_widget(widget, r);
     }
 }
