@@ -9,7 +9,7 @@ use futures_util::{Stream, StreamExt, TryStreamExt};
 use ratatui::{
     backend::{Backend, CrosstermBackend},
     layout::{Alignment, Constraint, Direction, Layout, Rect},
-    text::{Span, Spans},
+    text::{Span, Spans, Text},
     widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
     Frame, Terminal,
 };
@@ -278,7 +278,7 @@ impl MachineList {
 
 struct MachineLog {
     name: Option<String>,
-    log: Vec<String>,
+    log: Vec<Spans<'static>>,
     log_lines: usize,
     log_stream: Option<Pin<Box<dyn Stream<Item = Result<LogOutput>> + Send>>>,
     refresh: Notify,
@@ -300,31 +300,34 @@ impl MachineLog {
     }
 
     fn to_widget(&self) -> Paragraph {
-        let text: Vec<Spans> = self
-            .log
-            .iter()
-            .map(|line| parse_terminal_to_span(line.as_str()))
-            .collect();
-        Paragraph::new(text)
+        Paragraph::new(Text::from(self.log.clone()))
             .block(Block::default().title("Machine Log").borders(Borders::ALL))
             .wrap(Wrap { trim: false })
     }
 
     fn render<B: Backend>(&mut self, f: &mut Frame<B>, r: Rect) {
-        if self.log_size.is_none() || self.log_size != Some(r) {
-            self.log_size = Some(r);
+        // account for borders
+        let view = Rect {
+            x: r.x + 1,
+            y: r.y + 1,
+            height: r.height - 2,
+            width: r.width - 2,
+        };
 
-            // TODO: re-compute log_lines
+        if self.log_size != Some(view) {
+            self.log_size = Some(view);
+
+            // re-compute log_lines
             let mut lines = 0;
-            for line in &self.log {
-                lines += count_lines(line, r.width);
+            for span in &self.log {
+                lines += count_lines(span, view.width);
             }
             self.log_lines = lines;
         }
 
         let offset = self
             .log_lines
-            .saturating_sub(r.height.into())
+            .saturating_sub(self.log_size.unwrap().height.into())
             .try_into()
             .unwrap_or(u16::MAX);
         let mut scroll = self.scroll.unwrap_or(offset);
@@ -367,7 +370,7 @@ impl MachineLog {
                 LogOutput::StdErr { message } => message,
                 LogOutput::Console { message } => message,
             };
-            let log_line = String::from_utf8_lossy(&log_message).into_owned();
+            let log_line = parse_terminal_to_span(&log_message);
             if let Some(rect) = self.log_size {
                 // if this isn't set, `log_lines` will be "re"-computed in `render` anyway
                 self.log_lines += count_lines(&log_line, rect.width);
@@ -492,11 +495,11 @@ impl Perform for AnsiToRatatui<'_> {
     }
 }
 
-fn parse_terminal_to_span(text_line: &str) -> Spans {
+fn parse_terminal_to_span(text_line: &[u8]) -> Spans<'static> {
     let mut statemachine = Parser::<DefaultCharAccumulator>::new();
     let mut performer = AnsiToRatatui::default();
 
-    for byte in text_line.as_bytes() {
+    for byte in text_line {
         statemachine.advance(&mut performer, *byte);
     }
 
@@ -504,19 +507,15 @@ fn parse_terminal_to_span(text_line: &str) -> Spans {
     performer.spans.into()
 }
 
-// TODO: this assumes that the text is '1 byte' == '1 character', this is going to cause weird
-// intermitent issues with scrolling for things that aren't regular printble ASCII.
-// TODO: check for inline newlines
-// TODO: don't count non-printable characters
-fn count_lines(s: &str, line_len: u16) -> usize {
+fn count_lines(s: &Spans, line_len: u16) -> usize {
     let line_len = line_len as usize;
-    let log_len = s.len();
+    let log_len = s.width();
 
     // poor man's `div_ceil`
-    if log_len == line_len {
-        s.len() / line_len
+    if log_len % line_len == 0 {
+        log_len / line_len
     } else {
-        (s.len() / line_len) + 1
+        (log_len / line_len) + 1
     }
 }
 
