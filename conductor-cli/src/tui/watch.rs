@@ -307,7 +307,7 @@ impl MachineLog {
             .collect();
         Paragraph::new(text)
             .block(Block::default().title("Machine Log").borders(Borders::ALL))
-            .wrap(Wrap { trim: true })
+            .wrap(Wrap { trim: false })
     }
 
     fn render<B: Backend>(&mut self, f: &mut Frame<B>, r: Rect) {
