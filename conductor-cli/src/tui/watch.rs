@@ -303,7 +303,7 @@ impl MachineLog {
         let text: Vec<Spans> = self
             .log
             .iter()
-            .map(|line| Spans::from(line.as_str()))
+            .map(|line| parse_terminal_to_span(line.as_str()))
             .collect();
         Paragraph::new(text)
             .block(Block::default().title("Machine Log").borders(Borders::ALL))
@@ -393,6 +393,41 @@ impl MachineLog {
         .saturating_add_signed(distance);
         self.scroll = Some(scroll);
     }
+}
+
+use anstyle_parse::{DefaultCharAccumulator, Params, Parser, Perform};
+use ratatui::style::{Color, Modifier, Style};
+
+#[derive(Default)]
+/// 'Perform' terminal events, generating `ratatui` `Style`d `Span`s.
+struct AnsiToRatatui<'a> {
+    spans: Vec<Span<'a>>,
+    partial_span: Vec<char>,
+}
+
+impl AnsiToRatatui<'_> {
+    fn drain_partial(&mut self) -> String {
+        self.partial_span.drain(..).collect::<String>()
+    }
+}
+
+impl Perform for AnsiToRatatui<'_> {
+    fn print(&mut self, c: char) {
+        self.spans.push(Span::from(format!("{}", c)));
+
+        self.partial_span.push(c);
+    }
+}
+
+fn parse_terminal_to_span(text_line: &str) -> Spans {
+    let mut statemachine = Parser::<DefaultCharAccumulator>::new();
+    let mut performer = AnsiToRatatui::default();
+
+    for byte in text_line.as_bytes() {
+        statemachine.advance(&mut performer, *byte);
+    }
+
+    performer.spans.into()
 }
 
 // TODO: this assumes that the text is '1 byte' == '1 character', this is going to cause weird
