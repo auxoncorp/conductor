@@ -303,7 +303,7 @@ impl MachineLog {
         let text: Vec<Spans> = self
             .log
             .iter()
-            .map(|line| Spans::from(line.as_str()))
+            .map(|line| parse_terminal_to_span(line.as_str()))
             .collect();
         Paragraph::new(text)
             .block(Block::default().title("Machine Log").borders(Borders::ALL))
@@ -393,6 +393,115 @@ impl MachineLog {
         .saturating_add_signed(distance);
         self.scroll = Some(scroll);
     }
+}
+
+use anstyle_parse::{DefaultCharAccumulator, Params, Parser, Perform};
+use ratatui::style::{Color, Modifier, Style};
+
+#[derive(Default)]
+/// 'Perform' terminal events, generating `ratatui` `Style`d `Span`s.
+struct AnsiToRatatui<'a> {
+    spans: Vec<Span<'a>>,
+    partial_span: Vec<char>,
+    style: Style,
+}
+
+impl AnsiToRatatui<'_> {
+    fn flush_current_span(&mut self) {
+        if !self.partial_span.is_empty() {
+            let text = self.partial_span.drain(..).collect::<String>();
+            self.spans.push(Span::styled(text, self.style));
+        }
+    }
+}
+
+impl Perform for AnsiToRatatui<'_> {
+    fn print(&mut self, c: char) {
+        self.partial_span.push(c);
+    }
+
+    fn execute(&mut self, byte: u8) {
+        if byte.is_ascii_whitespace() {
+            self.partial_span.push(byte as char);
+        }
+    }
+
+    fn csi_dispatch(&mut self, params: &Params, _intermediates: &[u8], _: bool, _: u8) {
+        self.flush_current_span();
+
+        for param in params {
+            for code in param {
+                match code {
+                    // From https://en.wikipedia.org/wiki/ANSI_escape_code#SGR
+                    0 => self.style = Style::default(),
+                    // Modifiers
+                    1 => self.style = self.style.add_modifier(Modifier::BOLD),
+                    2 => self.style = self.style.add_modifier(Modifier::DIM),
+                    3 => self.style = self.style.add_modifier(Modifier::ITALIC),
+                    4 => self.style = self.style.add_modifier(Modifier::UNDERLINED),
+                    5 => self.style = self.style.add_modifier(Modifier::SLOW_BLINK),
+                    6 => self.style = self.style.add_modifier(Modifier::RAPID_BLINK),
+                    7 => self.style = self.style.add_modifier(Modifier::REVERSED),
+                    8 => self.style = self.style.add_modifier(Modifier::HIDDEN),
+                    9 => self.style = self.style.add_modifier(Modifier::CROSSED_OUT),
+                    10 => self.style = self.style.remove_modifier(Modifier::all()),
+                    // Foreground Color
+                    30 => self.style = self.style.fg(Color::Black),
+                    31 => self.style = self.style.fg(Color::Red),
+                    32 => self.style = self.style.fg(Color::Green),
+                    33 => self.style = self.style.fg(Color::Yellow),
+                    34 => self.style = self.style.fg(Color::Blue),
+                    35 => self.style = self.style.fg(Color::Magenta),
+                    36 => self.style = self.style.fg(Color::Cyan),
+                    37 => self.style = self.style.fg(Color::Gray),
+                    // TODO: 38 => self.style = self.style.fg(Color::Rgb(r,g,b)),
+                    39 => self.style = self.style.fg(Color::Reset),
+                    // Background Color
+                    40 => self.style = self.style.bg(Color::Black),
+                    41 => self.style = self.style.bg(Color::Red),
+                    42 => self.style = self.style.bg(Color::Green),
+                    43 => self.style = self.style.bg(Color::Yellow),
+                    44 => self.style = self.style.bg(Color::Blue),
+                    45 => self.style = self.style.bg(Color::Magenta),
+                    46 => self.style = self.style.bg(Color::Cyan),
+                    47 => self.style = self.style.bg(Color::Gray),
+                    //TODO: 48 => self.style = self.style.bg(Color::Rgb(r,g,b)),
+                    49 => self.style = self.style.bg(Color::Reset),
+                    // Light Foreground Color
+                    90 => self.style = self.style.fg(Color::DarkGray),
+                    91 => self.style = self.style.fg(Color::LightRed),
+                    92 => self.style = self.style.fg(Color::LightGreen),
+                    93 => self.style = self.style.fg(Color::LightYellow),
+                    94 => self.style = self.style.fg(Color::LightBlue),
+                    95 => self.style = self.style.fg(Color::LightMagenta),
+                    96 => self.style = self.style.fg(Color::LightCyan),
+                    97 => self.style = self.style.fg(Color::White),
+                    // Light Background Color
+                    100 => self.style = self.style.bg(Color::DarkGray),
+                    101 => self.style = self.style.bg(Color::LightRed),
+                    102 => self.style = self.style.bg(Color::LightGreen),
+                    103 => self.style = self.style.bg(Color::LightYellow),
+                    104 => self.style = self.style.bg(Color::LightBlue),
+                    105 => self.style = self.style.bg(Color::LightMagenta),
+                    106 => self.style = self.style.bg(Color::LightCyan),
+                    107 => self.style = self.style.bg(Color::White),
+                    _ => (),
+                }
+            }
+        }
+    }
+}
+
+fn parse_terminal_to_span(text_line: &str) -> Spans {
+    let mut statemachine = Parser::<DefaultCharAccumulator>::new();
+    let mut performer = AnsiToRatatui::default();
+
+    for byte in text_line.as_bytes() {
+        statemachine.advance(&mut performer, *byte);
+    }
+
+    performer.flush_current_span();
+    performer.spans.into()
 }
 
 // TODO: this assumes that the text is '1 byte' == '1 character', this is going to cause weird

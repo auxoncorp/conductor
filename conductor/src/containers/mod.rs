@@ -65,6 +65,10 @@ pub enum ContainerState {
         image_id: String,
         container_id: String,
     },
+    Exited {
+        image_id: String,
+        container_id: String,
+    },
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -257,16 +261,19 @@ impl ContainerBuilder {
         //trace!("containers: {containers:#?}");
 
         let state = if let (Some(image), Some(container)) = (image_id, containers.get(0)) {
-            if container.state == Some("running".to_string()) {
-                ContainerState::Running {
+            match container.state.as_deref() {
+                Some("running") => ContainerState::Running {
                     image_id: image,
                     container_id: container.id.clone().expect("container that exists has id"),
-                }
-            } else {
-                ContainerState::Built {
+                },
+                Some("exited") => ContainerState::Exited {
                     image_id: image,
                     container_id: container.id.clone().expect("container that exists has id"),
-                }
+                },
+                _ => ContainerState::Built {
+                    image_id: image,
+                    container_id: container.id.clone().expect("container that exists has id"),
+                },
             }
         } else {
             //let images = client.list_images::<&str>(None).await?;
@@ -685,6 +692,9 @@ impl Container {
             ContainerState::Running { .. } => {
                 trace!("container already running, nothing to build");
             }
+            ContainerState::Exited { .. } => {
+                trace!("container exited, but built, nothing to build");
+            }
         }
 
         Ok(())
@@ -702,6 +712,11 @@ impl Container {
             ContainerState::Built {
                 container_id,
                 image_id,
+            }
+            | ContainerState::Exited {
+                container_id,
+                image_id,
+                ..
             } => {
                 trace!(container_id, "start previously built container");
                 assert!(
@@ -734,7 +749,8 @@ impl Container {
             ContainerState::Built { .. } => {
                 bail!("machine not running, can't attach");
             }
-            ContainerState::Running { container_id, .. } => {
+            ContainerState::Exited { container_id, .. }
+            | ContainerState::Running { container_id, .. } => {
                 trace!(container_id, "attach to container");
                 let io = client
                     .attach_container::<String>(
@@ -840,7 +856,8 @@ impl Container {
             ContainerState::Built { .. } => {
                 bail!("machine not running, can't get stats");
             }
-            ContainerState::Running { container_id, .. } => {
+            ContainerState::Running { container_id, .. }
+            | ContainerState::Exited { container_id, .. } => {
                 trace!(container_id, "get container stats");
                 let mut stream = client.stats(
                     container_id,

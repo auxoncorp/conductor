@@ -1,0 +1,8 @@
+name = "colorful system"
+
+[[machine]]
+name = "colorful machine"
+bin = "conductor.toml" # TODO: make me optional
+[machine.provider.container]
+image = "my-rust-thing"
+containerfile = "Containerfile"

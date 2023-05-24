@@ -1,0 +1,3 @@
+FROM docker.io/rust:latest
+
+ENTRYPOINT cargo install cargo-watch
