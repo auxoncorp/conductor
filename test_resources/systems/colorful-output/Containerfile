@@ -1,3 +1,5 @@
-FROM docker.io/rust:latest
+FROM docker.io/ubuntu:latest
 
-ENTRYPOINT cargo install cargo-watch
+COPY ./color-test.sh /color-test.sh
+
+ENTRYPOINT /color-test.sh

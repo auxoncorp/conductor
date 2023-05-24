@@ -2,7 +2,7 @@ name = "colorful system"
 
 [[machine]]
 name = "colorful machine"
-bin = "conductor.toml" # TODO: make me optional
+bin = "color-test.sh" # TODO: auto copy & set as entrypoint
 [machine.provider.container]
-image = "my-rust-thing"
-containerfile = "Containerfile"
+image = "color-test"
+context = "."
