@@ -432,8 +432,57 @@ impl Perform for AnsiToRatatui<'_> {
     fn csi_dispatch(&mut self, params: &Params, _intermediates: &[u8], _: bool, _: u8) {
         self.flush_current_span();
 
+        #[derive(Debug)]
+        enum Multipart {
+            FgColor,
+            Fg256,
+            FgRgb,
+            FgRgbR(u8),
+            FgRgbRG(u8, u8),
+            BgColor,
+            Bg256,
+            BgRgb,
+            BgRgbR(u8),
+            BgRgbRG(u8, u8),
+        }
+
+        let mut cont = None;
+
         for param in params {
             for code in param {
+                if let Some(c) = cont {
+                    cont = match c {
+                        Multipart::FgColor if *code == 5 => Some(Multipart::Fg256),
+                        Multipart::FgColor if *code == 2 => Some(Multipart::FgRgb),
+                        Multipart::FgColor => panic!("unknown color type: {code}"),
+                        Multipart::Fg256 => {
+                            self.style = self.style.fg(Color::Indexed(*code as u8));
+                            None
+                        }
+                        Multipart::FgRgb => Some(Multipart::FgRgbR(*code as u8)),
+                        Multipart::FgRgbR(r) => Some(Multipart::FgRgbRG(r, *code as u8)),
+                        Multipart::FgRgbRG(r, g) => {
+                            self.style = self.style.fg(Color::Rgb(r, g, *code as u8));
+                            None
+                        }
+                        Multipart::BgColor if *code == 5 => Some(Multipart::Bg256),
+                        Multipart::BgColor if *code == 2 => Some(Multipart::BgRgb),
+                        Multipart::BgColor => panic!("unknown color type: {code}"),
+                        Multipart::Bg256 => {
+                            self.style = self.style.bg(Color::Indexed(*code as u8));
+                            None
+                        }
+                        Multipart::BgRgb => Some(Multipart::BgRgbR(*code as u8)),
+                        Multipart::BgRgbR(r) => Some(Multipart::BgRgbRG(r, *code as u8)),
+                        Multipart::BgRgbRG(r, g) => {
+                            self.style = self.style.bg(Color::Rgb(r, g, *code as u8));
+                            None
+                        }
+                    };
+
+                    continue;
+                }
+
                 match code {
                     // From https://en.wikipedia.org/wiki/ANSI_escape_code#SGR
                     0 => self.style = Style::default(),
@@ -457,7 +506,7 @@ impl Perform for AnsiToRatatui<'_> {
                     35 => self.style = self.style.fg(Color::Magenta),
                     36 => self.style = self.style.fg(Color::Cyan),
                     37 => self.style = self.style.fg(Color::Gray),
-                    // TODO: 38 => self.style = self.style.fg(Color::Rgb(r,g,b)),
+                    38 => cont = Some(Multipart::FgColor),
                     39 => self.style = self.style.fg(Color::Reset),
                     // Background Color
                     40 => self.style = self.style.bg(Color::Black),
@@ -468,7 +517,7 @@ impl Perform for AnsiToRatatui<'_> {
                     45 => self.style = self.style.bg(Color::Magenta),
                     46 => self.style = self.style.bg(Color::Cyan),
                     47 => self.style = self.style.bg(Color::Gray),
-                    //TODO: 48 => self.style = self.style.bg(Color::Rgb(r,g,b)),
+                    48 => cont = Some(Multipart::BgColor),
                     49 => self.style = self.style.bg(Color::Reset),
                     // Light Foreground Color
                     90 => self.style = self.style.fg(Color::DarkGray),
