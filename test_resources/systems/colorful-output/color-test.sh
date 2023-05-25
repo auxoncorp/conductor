@@ -18,7 +18,7 @@ for i in {0..255} ; do
 
     # Check whether to print new line
     [ $(( ($i +  1) % 4 )) == 0 ] && set1=1 || set1=0
-    [ $(( ($i - 15) % 6 )) == 0 ] && set2=1 || set2=0
+    [ $(( ($i - 15) % 4 )) == 0 ] && set2=1 || set2=0
     if ( (( set1 == 1 )) && (( i <= 15 )) ) || ( (( set2 == 1 )) && (( i > 15 )) ); then
         printf "\e[0m\n";
     fi
@@ -28,7 +28,7 @@ done
 # RGB Color
 # From https://unix.stackexchange.com/a/404415
 
-awk -v term_cols="${width:-$(tput cols || echo 80)}" 'BEGIN{
+awk -v term_cols="${width:-80}" 'BEGIN{
     s="/\\";
     for (colnum = 0; colnum<term_cols; colnum++) {
         r = 255-(colnum*255/term_cols);

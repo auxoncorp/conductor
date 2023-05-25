@@ -1,6 +1,7 @@
 use anyhow::{anyhow, bail, Context as _, Result};
 use bollard::{
     container::{self, AttachContainerOptions, ListContainersOptions, StatsOptions},
+    exec::{CreateExecOptions, StartExecOptions},
     image::{BuildImageOptions, CreateImageOptions, ListImagesOptions},
     models::{DeviceMapping, DeviceRequest, EndpointSettings, Mount, MountTypeEnum},
     Docker,
@@ -21,6 +22,7 @@ pub use network::{Network, NetworkState};
 
 // TODO: use a real local type
 pub use bollard::container::LogOutput;
+pub use bollard::exec::StartExecResults;
 
 type ContainerClient = Docker;
 
@@ -762,6 +764,49 @@ impl Container {
                             stdout: Some(true),
                             stderr: Some(true),
                             detach_keys: Some("ctrl-d".to_string()),
+                        }),
+                    )
+                    .await?;
+
+                Ok(io)
+            }
+        }
+    }
+
+    #[instrument]
+    pub async fn shell(&self) -> Result<StartExecResults> {
+        let client = self.client().await;
+
+        match &self.state {
+            ContainerState::Defined => {
+                bail!("machine not built or running, can't open shell");
+            }
+            ContainerState::Exited { .. } | ContainerState::Built { .. } => {
+                bail!("machine not running, can't open shell");
+            }
+            ContainerState::Running { container_id, .. } => {
+                trace!(container_id, "attach to container");
+                let exec = client
+                    .create_exec(
+                        container_id,
+                        CreateExecOptions {
+                            attach_stdin: Some(true),
+                            attach_stdout: Some(true),
+                            attach_stderr: Some(true),
+                            detach_keys: Some("ctrl-d"),
+                            tty: Some(true),
+                            cmd: Some(vec!["/bin/sh"]),
+                            ..Default::default()
+                        },
+                    )
+                    .await?;
+
+                let io = client
+                    .start_exec(
+                        &exec.id,
+                        Some(StartExecOptions {
+                            detach: false,
+                            ..Default::default()
                         }),
                     )
                     .await?;
