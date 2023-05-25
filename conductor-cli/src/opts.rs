@@ -117,6 +117,7 @@ pub enum Machine {
     Attach(Attach),
     Stats(Stats),
     Dump(Dump),
+    Shell(Shell),
 }
 
 /// List machines
@@ -156,6 +157,15 @@ pub struct Stats {
 pub struct Dump {
     #[command(flatten)]
     pub system: CommonSystemOptions,
+}
+
+/// Open a shell within the machine
+#[derive(Parser, Debug)]
+pub struct Shell {
+    #[command(flatten)]
+    pub system: CommonSystemOptions,
+
+    pub machine_name: MachineName,
 }
 
 #[derive(Parser, Debug)]

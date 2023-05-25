@@ -97,6 +97,19 @@ impl System {
         bail!("machine not found")
     }
 
+    pub fn get_container_by_component_name(&self, component_name: &str) -> Result<&Container> {
+        let full_component_name = self.container_runtime_name_for_machine_named(component_name)?;
+        for container in &self.containers {
+            if let Some(container_name) = container.name() {
+                if container_name == full_component_name.as_str() {
+                    return Ok(container);
+                }
+            }
+        }
+
+        bail!("machine not found")
+    }
+
     pub async fn build_runtime_containers_from_deployment(&mut self) -> Result<()> {
         debug_assert!(self.containers.is_empty());
         let deployment = self.deployment()?;
