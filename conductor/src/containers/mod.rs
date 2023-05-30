@@ -1,7 +1,6 @@
 use anyhow::{anyhow, bail, Context as _, Result};
 use bollard::{
     container::{self, AttachContainerOptions, ListContainersOptions, StatsOptions},
-    exec::{CreateExecOptions, StartExecOptions},
     image::{BuildImageOptions, CreateImageOptions, ListImagesOptions},
     models::{DeviceMapping, DeviceRequest, EndpointSettings, Mount, MountTypeEnum},
     Docker,
@@ -20,9 +19,17 @@ pub mod network;
 
 pub use network::{Network, NetworkState};
 
+use docker_api::{
+    opts::{ExecCreateOpts, ExecStartOpts},
+    Docker as Docker2,
+};
+
 // TODO: use a real local type
 pub use bollard::container::LogOutput;
 pub use bollard::exec::StartExecResults;
+
+pub use containers_api::conn::Multiplexer as StdIo;
+pub use containers_api::conn::TtyChunk as StdIoChunk;
 
 type ContainerClient = Docker;
 
@@ -39,7 +46,7 @@ pub struct ContainerBuilder {
     networks: Vec<Network>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Container {
     name: Option<String>,
     state: ContainerState,
@@ -53,6 +60,7 @@ pub struct Container {
     env: Option<Vec<String>>,
     gpu_cap: bool,
     networks: Vec<Network>,
+    client: docker_api::Docker,
 }
 
 #[derive(Debug, Default)]
@@ -192,6 +200,13 @@ impl ContainerBuilder {
             .negotiate_version()
             .await?;
 
+        let mut client2 = Docker2::new(
+            std::env::var("DOCKER_HOST")
+                .as_deref()
+                .unwrap_or("unix:///var/run/docker.sock"),
+        )?;
+        client2.adjust_api_version().await?;
+
         trace!("negotiated version: {}", client.client_version());
 
         // compile shared filters
@@ -313,6 +328,7 @@ impl ContainerBuilder {
             env: self.env,
             gpu_cap: self.gpu_cap,
             networks: self.networks,
+            client: client2,
         };
 
         Ok(container)
@@ -774,42 +790,31 @@ impl Container {
     }
 
     #[instrument]
-    pub async fn shell(&self) -> Result<StartExecResults> {
-        let client = self.client().await;
-
+    pub async fn shell(&self) -> Result<StdIo> {
         match &self.state {
             ContainerState::Defined => {
                 bail!("machine not built or running, can't open shell");
             }
             ContainerState::Exited { .. } | ContainerState::Built { .. } => {
+                // TODO: is there a way I can run the shell in the container anyway?
                 bail!("machine not running, can't open shell");
             }
             ContainerState::Running { container_id, .. } => {
                 trace!(container_id, "attach to container");
-                let exec = client
-                    .create_exec(
-                        container_id,
-                        CreateExecOptions {
-                            attach_stdin: Some(true),
-                            attach_stdout: Some(true),
-                            attach_stderr: Some(true),
-                            detach_keys: Some("ctrl-d"),
-                            tty: Some(true),
-                            cmd: Some(vec!["/bin/sh"]),
-                            ..Default::default()
-                        },
-                    )
-                    .await?;
 
-                let io = client
-                    .start_exec(
-                        &exec.id,
-                        Some(StartExecOptions {
-                            detach: false,
-                            ..Default::default()
-                        }),
-                    )
-                    .await?;
+                let container = self.client.containers().get(container_id);
+
+                let create_opts = ExecCreateOpts::builder()
+                    .attach_stdout(true)
+                    .attach_stderr(true)
+                    .attach_stdin(true)
+                    .detach_keys("ctrl-d")
+                    .tty(true)
+                    .command(["/bin/sh"])
+                    .build();
+                // TODO: set the console_size option?
+                let start_opts = ExecStartOpts::builder().tty(false).build();
+                let io = container.exec(&create_opts, &start_opts).await?;
 
                 Ok(io)
             }

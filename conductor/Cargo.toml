@@ -31,6 +31,8 @@ data-encoding = "2.3.3"
 regex = "1.8"
 lazy_static = "1.4"
 indoc = "2"
+docker-api = { git = "https://github.com/vv9k/docker-api-rs", branch = "fix-exec-lifetime" }
+containers-api = { git = "https://github.com/vv9k/containers-api" }
 
 [dev-dependencies]
 tracing-test = "0.2"

@@ -1,7 +1,7 @@
 use crate::opts::{Attach, Dump, Inspect, List, Machine, Shell, Stats};
 use crate::stats::ContainerAndStats;
-use anyhow::{bail, Result};
-use conductor::containers::{Container, LogOutput, StartExecResults};
+use anyhow::Result;
+use conductor::containers::{Container, LogOutput, StdIoChunk};
 use futures_util::StreamExt;
 use std::io::{self, Write};
 use tabwriter::TabWriter;
@@ -118,18 +118,15 @@ async fn attach_to_container(container: &Container) -> Result<()> {
 async fn shell_for_container(container: &Container) -> Result<()> {
     let io = container.shell().await?;
 
-    let StartExecResults::Attached {
-        mut input, mut output
-    } = io else {
-        bail!("docker didn't attach to exec'd shell")
-    };
+    let (mut output, mut input) = io.split();
 
-    let mut stdin = tokio::io::stdin();
+    let stdin = tokio::io::stdin();
     let mut stdout = tokio::io::stdout();
     let mut stderr = tokio::io::stderr();
 
     tokio::spawn(async move {
-        tokio::io::copy(&mut stdin, &mut input)
+        use async_compat::CompatExt;
+        futures_util::io::copy(&mut stdin.compat(), &mut input)
             .await
             .expect("connect stdin");
     });
@@ -138,12 +135,13 @@ async fn shell_for_container(container: &Container) -> Result<()> {
         let cmd_output = output_item?;
 
         match cmd_output {
-            LogOutput::StdIn { message } => stdout.write_all(&message).await?,
-            LogOutput::StdOut { message } => stdout.write_all(&message).await?,
-            LogOutput::StdErr { message } => stderr.write_all(&message).await?,
-            // Everything is coming out of this variant, why? What actaully is it?
-            LogOutput::Console { message } => stdout.write_all(&message).await?,
+            // TODO: filter stdin text from stdout, this doesn't actually work, all text comes our of stdout
+            StdIoChunk::StdIn(_message) => (), //stdout.write_all(&message).await?,
+            StdIoChunk::StdOut(message) => stdout.write_all(&message).await?,
+            StdIoChunk::StdErr(message) => stderr.write_all(&message).await?,
         }
+
+        stdout.flush().await?;
     }
 
     Ok(())
