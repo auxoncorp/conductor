@@ -22,6 +22,7 @@ conductor = { version = "0.1.0-dev", path = "../conductor"}
 conductor-config = { version = "0.1.0-dev", path = "../conductor-config"}
 
 anyhow = "1.0"
+async-compat = "0.2"
 clap = { version = "4", features = ["derive", "cargo", "wrap_help"] }
 crossterm = "0.26"
 futures-util = "0.3"
